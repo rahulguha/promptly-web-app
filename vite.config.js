@@ -7,13 +7,16 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [sveltekit()],
+    define: {
+      "import.meta.env.PUBLIC_BACKEND_API_BASE_URL": JSON.stringify(
+        env.PUBLIC_BACKEND_API_BASE_URL
+      ),
+    },
     server: {
       proxy: {
-        // Proxy API requests in development to the backend server
-        // The target can be configured via VITE_API_PROXY_TARGET in .env
+        // Proxy all API requests to the backend server
         "/v1": {
-          target: env.VITE_API_PROXY_TARGET || "http://52.200.143.32:8082",
-          // target: env.VITE_API_PROXY_TARGET || "http://localhost:8082",
+          target: env.VITE_API_PROXY_TARGET || "http://localhost:8082",
           changeOrigin: true,
         },
       },

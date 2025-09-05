@@ -1,5 +1,32 @@
 <script>
 	import '../app.css';
+	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { authStore, checkAuthStatus, logoutUser } from '../lib/stores/authStore';
+
+	let isAuthenticated = false;
+	let user = null;
+	let loading = true;
+
+	authStore.subscribe(state => {
+		isAuthenticated = state.isAuthenticated;
+		user = state.user;
+		loading = state.loading;
+	});
+
+	onMount(() => {
+		checkAuthStatus();
+	});
+
+	async function handleSignIn() {
+		// Redirect to the backend's Google login endpoint
+		window.location.href = `${import.meta.env.VITE_PUBLIC_BACKEND_API_BASE_URL}/api/auth/login`;
+	}
+
+	async function handleSignOut() {
+		await logoutUser();
+		goto('/'); // Redirect to home after logout
+	}
 </script>
 
 <div class="app">
@@ -9,6 +36,16 @@
 			<div class="header-text">
 				<h1>Promptly</h1> 
 				<p>opensourced Prompt Management System</p>
+			</div>
+			<div class="auth-controls">
+				{#if loading}
+					<span>Loading...</span>
+				{:else if isAuthenticated}
+					<span class="user-name">Hello, {user.name}</span>
+					<button on:click={handleSignOut} class="auth-button">Sign Out</button>
+				{:else}
+					<button on:click={handleSignIn} class="auth-button">Sign In</button>
+				{/if}
 			</div>
 		</div>
 	</header>
@@ -70,5 +107,36 @@
 		max-width: 1200px;
 		margin: 0 auto;
 		padding: 1px;
+	}
+
+	.auth-controls {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		margin-left: auto; /* Pushes auth controls to the right */
+	}
+
+	.auth-button {
+		background-color: #4CAF50; /* Green */
+		border: none;
+		color: white;
+		padding: 10px 20px;
+		text-align: center;
+		text-decoration: none;
+		display: inline-block;
+		font-size: 16px;
+		margin: 4px 2px;
+		cursor: pointer;
+		border-radius: 8px;
+		transition: background-color 0.3s ease;
+	}
+
+	.auth-button:hover {
+		background-color: #45a049;
+	}
+
+	.user-name {
+		font-weight: bold;
+		margin-right: 10px;
 	}
 </style>
