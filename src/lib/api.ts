@@ -8,6 +8,29 @@ export interface Persona {
   llm_role_display: string;
 }
 
+export interface Profile {
+  id: string;
+  name: string;
+  description: string;
+  attributes: {
+    gender?: string;
+    age?: number;
+    location?: {
+      city?: string;
+      state?: string;
+      country?: string;
+      postal_code?: string;
+    };
+    education_level?: string;
+    occupation?: string;
+    interests?: string[];
+    expertise_level?: string;
+    tone_preference?: string;
+    preferred_languages?: string[];
+    intent?: string;
+  };
+}
+
 export interface PromptTemplate {
   id: string;
   name: string;
@@ -101,6 +124,23 @@ export const api = {
 
   deletePersona(id: string): Promise<void> {
     return apiRequest(`/personas/${id}`, { method: "DELETE" });
+  },
+
+  // Profiles
+  getProfiles(): Promise<Profile[]> {
+    return apiRequest("/profiles");
+  },
+
+  createProfile(profile: Omit<Profile, "id">): Promise<Profile> {
+    return apiRequest("/profiles", { method: "POST", body: profile });
+  },
+
+  updateProfile(id: string, profile: Omit<Profile, "id">): Promise<Profile> {
+    return apiRequest(`/profiles/${id}`, { method: "PUT", body: profile });
+  },
+
+  deleteProfile(id: string): Promise<void> {
+    return apiRequest(`/profiles/${id}`, { method: "DELETE" });
   },
 
   // Templates

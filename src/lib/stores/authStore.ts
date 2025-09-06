@@ -3,6 +3,7 @@ import { writable } from 'svelte/store';
 interface User {
   name: string;
   email: string;
+  picture?: string;
 }
 
 interface AuthState {

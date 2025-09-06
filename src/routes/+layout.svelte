@@ -12,6 +12,9 @@
 		isAuthenticated = state.isAuthenticated;
 		user = state.user;
 		loading = state.loading;
+		// if (user) {
+		// 	console.log('User object:', user);
+		// }
 	});
 
 	onMount(() => {
@@ -41,6 +44,9 @@
 				{#if loading}
 					<span>Loading...</span>
 				{:else if isAuthenticated}
+					{#if user.picture}
+						<img src={user.picture} alt="{user.name}'s profile picture" class="profile-picture" />
+					{/if}
 					<span class="user-name">Hello, {user.name}</span>
 					<button on:click={handleSignOut} class="auth-button">Sign Out</button>
 				{:else}
@@ -137,6 +143,13 @@
 
 	.user-name {
 		font-weight: bold;
+		margin-right: 10px;
+	}
+
+	.profile-picture {
+		width: 40px;
+		height: 40px;
+		border-radius: 50%;
 		margin-right: 10px;
 	}
 </style>

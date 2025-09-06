@@ -16,5 +16,8 @@
     "typescript": "^5.0.0",
     "vite": "^6.3.5"
   },
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "compromise": "^14.14.4"
+  }
 }

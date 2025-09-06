@@ -1,9 +1,10 @@
 <script lang="ts">
 	import PersonaManager from '$lib/PersonaManager.svelte';
+	import ProfileManager from '$lib/ProfileManager.svelte';
 	import TemplateManager from '$lib/TemplateManager.svelte';
 	import PromptGenerator from '$lib/PromptGenerator.svelte';
 
-	let activeTab = 'personas';
+	let activeTab = 'profiles';
 
 	function setActiveTab(tab: string) {
 		activeTab = tab;
@@ -12,19 +13,25 @@
 
 <div class="prompt-management">
 	<div class="tab-navigation">
-		<button 
+		<button
+			class="tab-button {activeTab === 'profiles' ? 'active' : ''}"
+			onclick={() => setActiveTab('profiles')}
+		>
+			Profiles
+		</button>
+		<button
 			class="tab-button {activeTab === 'personas' ? 'active' : ''}"
 			onclick={() => setActiveTab('personas')}
 		>
 			Personas
 		</button>
-		<button 
+		<button
 			class="tab-button {activeTab === 'templates' ? 'active' : ''}"
 			onclick={() => setActiveTab('templates')}
 		>
 			Templates
 		</button>
-		<button 
+		<button
 			class="tab-button {activeTab === 'generate' ? 'active' : ''}"
 			onclick={() => setActiveTab('generate')}
 		>
@@ -33,7 +40,9 @@
 	</div>
 
 	<div class="tab-content">
-		{#if activeTab === 'personas'}
+		{#if activeTab === 'profiles'}
+			<ProfileManager />
+		{:else if activeTab === 'personas'}
 			<PersonaManager />
 		{:else if activeTab === 'templates'}
 			<TemplateManager />
@@ -50,7 +59,7 @@
 		padding: 20px;
 		box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 	}
-	
+
 	.tab-content {
 		margin-top: 20px;
 	}
