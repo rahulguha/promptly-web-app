@@ -4,6 +4,7 @@ const API_BASE = "/v1";
 
 export interface Persona {
   persona_id: string;
+  profile_id: string;
   user_role_display: string;
   llm_role_display: string;
 }
@@ -107,12 +108,12 @@ async function apiRequest<T>(
 
 export const api = {
   // Personas
-  getPersonas(): Promise<Persona[]> {
-    return apiRequest("/personas");
+  getPersonas(profile_id: string): Promise<Persona[]> {
+    return apiRequest(`/personas?profile_id=${profile_id}`);
   },
 
-  createPersona(persona: Omit<Persona, "persona_id">): Promise<Persona> {
-    return apiRequest("/personas", { method: "POST", body: persona });
+  createPersona(persona: Omit<Persona, "persona_id">, profile_id: string): Promise<Persona> {
+    return apiRequest("/personas", { method: "POST", body: { ...persona, profile_id } });
   },
 
   updatePersona(
@@ -144,8 +145,8 @@ export const api = {
   },
 
   // Templates
-  getTemplates(): Promise<PromptTemplate[]> {
-    return apiRequest("/templates");
+  getTemplates(profile_id: string): Promise<PromptTemplate[]> {
+    return apiRequest(`/templates?profile_id=${profile_id}`);
   },
 
   createTemplate(
@@ -181,7 +182,9 @@ export const api = {
   generatePrompt(
     templateId: string,
     name: string,
-    values: Record<string, string>
+    values: Record<string, string>,
+    content: string,
+    profile_id: string
   ): Promise<Prompt> {
     return apiRequest("/generate-prompt", {
       method: "POST",
@@ -189,12 +192,14 @@ export const api = {
         template_id: templateId,
         name: name,
         variable_values: values,
+        content: content,
+        profile_id: profile_id,
       },
     });
   },
 
-  getPrompts(): Promise<Prompt[]> {
-    return apiRequest("/prompts");
+  getPrompts(profile_id: string): Promise<Prompt[]> {
+    return apiRequest(`/prompts?profile_id=${profile_id}`);
   },
 
   updatePrompt(id: string, prompt: Omit<Prompt, "id">): Promise<Prompt> {

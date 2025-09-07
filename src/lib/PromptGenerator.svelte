@@ -3,6 +3,10 @@
 	import { onMount } from 'svelte';
 	import RichDropdown from './RichDropdown.svelte';
 
+	import { selectedProfile } from './stores/profileStore';
+	import { eventBus } from './stores/eventBus';
+	import type { Profile } from '$lib/api';
+
 	let templates: PromptTemplate[] = [];
 	let personas: Persona[] = [];
 	let generatedPrompts: Prompt[] = [];
@@ -14,61 +18,143 @@
 	let editingPrompt: Prompt | null = null;
 	let showEditForm = false;
 	let filterTemplateId = '';
+	let currentProfile: Profile | null = null;
+	let displayedVariables: string[] = [];
+	let copiedPromptId: string | null = null;
+	let showQueryModal = false;
+	let userQuery = '';
+	let selectedLLM = '';
+	let selectedPrompt: Prompt | null = null;
 
-	onMount(async () => {
-		try {
-			const [templatesData, personasData, promptsData] = await Promise.all([
-				api.getTemplates(),
-				api.getPersonas(),
-				api.getPrompts()
-			]);
-			templates = templatesData;
-			console.log('Loaded templates:', templates);
-			personas = personasData;
-			generatedPrompts = promptsData;
-			console.log('Loaded personas:', personas?.length || 0);
-		} catch (error) {
-			console.error('Failed to load data:', error);
+	function generateSystemPrompt(profile: Profile): string {
+		const attrs = profile.attributes;
+		let systemPrompt = `[System Prompt]\nUser Profile: ${profile.name}`;
+		
+		if (profile.description) {
+			systemPrompt += `\nDescription: ${profile.description}`;
+		}
+		
+		// Demographics
+		const demographics = [];
+		if (attrs.age) demographics.push(`${attrs.age} years old`);
+		if (attrs.gender) demographics.push(attrs.gender);
+		if (attrs.location?.city && attrs.location?.country) {
+			demographics.push(`from ${attrs.location.city}, ${attrs.location.country}`);
+		}
+		if (demographics.length > 0) {
+			systemPrompt += `\nDemographics: ${demographics.join(', ')}`;
+		}
+		
+		// Education & Professional
+		if (attrs.education_level) systemPrompt += `\nEducation: ${attrs.education_level}`;
+		if (attrs.occupation) systemPrompt += `\nOccupation: ${attrs.occupation}`;
+		if (attrs.expertise_level) systemPrompt += `\nExpertise Level: ${attrs.expertise_level}`;
+		
+		// Preferences
+		if (attrs.tone_preference) systemPrompt += `\nPreferred Tone: ${attrs.tone_preference}`;
+		if (attrs.preferred_languages?.length) systemPrompt += `\nLanguages: ${attrs.preferred_languages.join(', ')}`;
+		if (attrs.interests?.length) systemPrompt += `\nInterests: ${attrs.interests.join(', ')}`;
+		if (attrs.intent) systemPrompt += `\nIntent: ${attrs.intent}`;
+		
+		systemPrompt += '\n\nTailor your responses to match this user profile and their specific context.\n';
+		return systemPrompt;
+	}
+
+	function extractVariables(text: string): string[] {
+		const regex = /\{\{([^}]+)\}\}/g;
+		const matches = text.match(regex);
+		if (matches) {
+			return [...new Set(matches.map(match => match.substring(2, match.length - 2).trim()))];
+		}
+		return [];
+	}
+
+	selectedProfile.subscribe(value => {
+		currentProfile = value;
+	});
+
+	eventBus.subscribe(event => {
+		if (event && (event.event === 'personaCreated' || event.event === 'templateCreated')) {
+			if (currentProfile) {
+				loadData(currentProfile.id);
+			}
 		}
 	});
 
 	$: {
+		if (currentProfile) {
+			loadData(currentProfile.id);
+		} else {
+			templates = [];
+			personas = [];
+			generatedPrompts = [];
+		}
+	}
+
+	async function loadData(profileId: string) {
+		try {
+			const [templatesData, personasData, promptsData] = await Promise.all([
+				api.getTemplates(profileId),
+				api.getPersonas(profileId),
+				api.getPrompts(profileId)
+			]);
+			templates = templatesData;
+			personas = personasData;
+			generatedPrompts = promptsData;
+		} catch (error) {
+			console.error('Failed to load data:', error);
+		}
+	}
+
+	$: {
 		if (selectedTemplateId) {
-			console.log('selectedTemplateId:', selectedTemplateId);
-			// Parse the compound value (id:version)
 			const [templateId, versionStr] = selectedTemplateId.split(':');
 			const version = parseInt(versionStr);
-			selectedTemplateVersion = version;
-			console.log('Searching for template with id:', templateId, 'and version:', version);
-			
 			selectedTemplate = templates.find(t => t.id === templateId && t.version === version) || null;
-			console.log('selectedTemplate:', selectedTemplate);
 
 			if (selectedTemplate) {
-				// Initialize variables object
-				variables = {};
-				selectedTemplate.variables.forEach(v => {
-						variables[v] = '';
-				});
+				displayedVariables = extractVariables(selectedTemplate.template);
+				const newVariables = {};
+				for (const v of displayedVariables) {
+					newVariables[v] = variables[v] || '';
+				}
+				variables = newVariables;
 			}
 		} else {
 			selectedTemplate = null;
-			selectedTemplateVersion = 1;
 			variables = {};
+			displayedVariables = [];
 		}
 	}
 
 	async function generatePrompt(e: Event) {
 		e.preventDefault();
-		if (!selectedTemplateId) return;
+		if (!selectedTemplateId || !currentProfile) return;
 		
 		try {
 			if (editingPrompt) {
 				await updatePrompt();
 			} else {
-				// Parse template ID from the compound value
-				const [templateId] = selectedTemplateId.split(':');
-				const prompt = await api.generatePrompt(templateId, promptName, variables);
+				// Parse template ID and version from the compound value
+				const [templateId, versionStr] = selectedTemplateId.split(':');
+				const version = parseInt(versionStr);
+				const template = templates.find(t => t.id === templateId && t.version === version);
+				if (!template) return;
+				
+				// Generate system prompt from profile
+				const systemPrompt = generateSystemPrompt(currentProfile);
+				
+				// Generate content with updated variables
+				let content = template.template;
+				for (const [variable, value] of Object.entries(variables)) {
+					const placeholder = `{{${variable}}}`;
+					content = content.replaceAll(placeholder, value || '');
+				}
+				
+				// Combine system prompt with content
+				content = systemPrompt + '\n' + content;
+
+				const prompt = await api.generatePrompt(templateId, promptName, variables, content, currentProfile.id);
 				if (prompt) {
 					generatedPrompts = [prompt, ...generatedPrompts];
 					variables = {};
@@ -129,7 +215,7 @@ ${template.template}`;
 		return {
 			value: `${template.id}:${template.version}`,
 			display: template.name ? `${template.name} (v${template.version})` : (persona ? `${persona.user_role_display} → ${persona.llm_role_display} (v${template.version})` : 'Unknown Persona'),
-			meta: template.template.slice(0, 60) + '...',
+			meta: template.template.slice(0, 60) + '...', // Truncate for meta display
 			user_role: persona?.user_role || 'unknown',
 			llm_role: persona?.llm_role || 'unknown'
 		};
@@ -174,12 +260,18 @@ ${template.template}`;
 		const template = templates.find(t => t.id === editingPrompt.template_id && t.version === editingPrompt.template_version);
 		if (!template) return;
 
+		// Generate system prompt from profile
+		const systemPrompt = generateSystemPrompt(currentProfile);
+		
 		// Generate new content with updated variables
 		let content = template.template;
 		for (const [variable, value] of Object.entries(variables)) {
-			const placeholder = "{{" + variable + "}}";
-			content = content.replace(new RegExp(placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), value);
+			const placeholder = `{{${variable}}}`;
+			content = content.replaceAll(placeholder, value || '');
 		}
+		
+		// Combine system prompt with content
+		content = systemPrompt + '\n' + content;
 
 		const updatedPrompt = await api.updatePrompt(editingPrompt.id, {
 			template_id: editingPrompt.template_id,
@@ -197,6 +289,49 @@ ${template.template}`;
 		variables = {};
 		selectedTemplateId = '';
 		promptName = '';
+	}
+
+	async function copyToClipboard(text: string) {
+		try {
+			await navigator.clipboard.writeText(text);
+			return true;
+		} catch (err) {
+			console.error('Failed to copy text: ', err);
+			return false;
+		}
+	}
+
+	function openQueryModal(prompt: Prompt, llm: string) {
+		selectedPrompt = prompt;
+		selectedLLM = llm;
+		userQuery = '';
+		showQueryModal = true;
+	}
+
+	function closeQueryModal() {
+		showQueryModal = false;
+		selectedPrompt = null;
+		selectedLLM = '';
+		userQuery = '';
+	}
+
+	async function executeWithQuery() {
+		if (!selectedPrompt || !userQuery.trim()) return;
+		
+		// Combine the prompt with the user's query
+		const fullContent = selectedPrompt.content + '\n\n[User Query]\n' + userQuery.trim();
+		
+		const copied = await copyToClipboard(fullContent);
+		if (copied) {
+			copiedPromptId = selectedPrompt.id;
+			
+			// Open the appropriate LLM
+			const url = selectedLLM === 'chatgpt' ? 'https://chat.openai.com/' : 'https://claude.ai/';
+			window.open(url, '_blank');
+			
+			setTimeout(() => copiedPromptId = null, 2000);
+			closeQueryModal();
+		}
 	}
 </script>
 
@@ -223,7 +358,7 @@ ${template.template}`;
 
 			<div class="variables-form">
 				<h4>Variables</h4>
-				{#each selectedTemplate.variables as variable}
+				{#each displayedVariables as variable}
 					<div class="variable-input">
 						<label>{variable}:</label>
 						<input bind:value={variables[variable]} placeholder={`Enter ${variable}`} />
@@ -231,11 +366,11 @@ ${template.template}`;
 				{/each}
 			</div>
 
-			<button onclick={(e) => generatePrompt(e)}>
+			<button on:click={(e) => generatePrompt(e)}>
 				{editingPrompt ? 'Update Prompt' : 'Generate Prompt'}
 			</button>
 			{#if editingPrompt}
-				<button type="button" onclick={resetEditForm}>Cancel Edit</button>
+				<button type="button" on:click={resetEditForm}>Cancel Edit</button>
 			{/if}
 		{/if}
 	</div>
@@ -258,7 +393,7 @@ ${template.template}`;
 						<small><strong>Template:</strong> 
 							<button 
 								class="template-link" 
-								onclick={() => showTemplateDetails(prompt.template_id, prompt.template_version)}
+								on:click={() => showTemplateDetails(prompt.template_id, prompt.template_version)}
 								title="Click to view template details"
 							>
 								{getTemplateDisplay(prompt.template_id, prompt.template_version)}
@@ -267,10 +402,16 @@ ${template.template}`;
 						<small><strong>Name:</strong> {prompt.name}</small>
 					</div>
 					<div class="prompt-actions">
-						<button class="icon-btn edit-btn" onclick={() => editPrompt(prompt)} title="Edit">
+						<button class="llm-btn chatgpt-btn" on:click={() => openQueryModal(prompt, 'chatgpt')} title="Test in ChatGPT">
+							{copiedPromptId === prompt.id ? 'Copied!' : 'ChatGPT'}
+						</button>
+						<button class="llm-btn claude-btn" on:click={() => openQueryModal(prompt, 'claude')} title="Test in Claude">
+							{copiedPromptId === prompt.id ? 'Copied!' : 'Claude'}
+						</button>
+						<button class="icon-btn edit-btn" on:click={() => editPrompt(prompt)} title="Edit">
 							✏️
 						</button>
-						<button class="icon-btn delete-btn" onclick={() => deletePrompt(prompt)} title="Delete">
+						<button class="icon-btn delete-btn" on:click={() => deletePrompt(prompt)} title="Delete">
 							🗑️
 						</button>
 					</div>
@@ -292,6 +433,27 @@ ${template.template}`;
 	</div>
 </div>
 
+<!-- Query Modal -->
+{#if showQueryModal}
+	<div class="modal-overlay" on:click={closeQueryModal}>
+		<div class="modal" on:click|stopPropagation>
+			<h3>Test Prompt with {selectedLLM === 'chatgpt' ? 'ChatGPT' : 'Claude'}</h3>
+			<p>Enter your question or request to test this prompt:</p>
+			<textarea
+				bind:value={userQuery}
+				placeholder="e.g., Create a practice quiz for algebra..."
+				autofocus
+			></textarea>
+			<div class="modal-actions">
+				<button type="button" class="secondary" on:click={closeQueryModal}>Cancel</button>
+				<button type="button" class="primary" on:click={executeWithQuery} disabled={!userQuery.trim()}>
+					Test in {selectedLLM === 'chatgpt' ? 'ChatGPT' : 'Claude'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
 <style>
 	.prompt-generator {
 		margin: 20px;
@@ -306,14 +468,14 @@ ${template.template}`;
 		margin-bottom: 15px;
 	}
 	
-	.template-preview {
+	template-preview {
 		background: #f5f5f5;
 		padding: 15px;
 		border-radius: 4px;
 		margin: 15px 0;
 	}
 	
-	.template-preview pre {
+	template-preview pre {
 		margin: 0;
 		font-size: 12px;
 		white-space: pre-wrap;
@@ -404,6 +566,7 @@ ${template.template}`;
 	.prompt-actions {
 		display: flex;
 		gap: 8px;
+		align-items: center;
 	}
 	
 	.icon-btn {
@@ -432,6 +595,40 @@ ${template.template}`;
 	.delete-btn:hover {
 		background: #f8d7da;
 		border-color: #f5c6cb;
+	}
+
+	.llm-btn {
+		padding: 6px 12px;
+		font-size: 12px;
+		font-weight: 500;
+		border-radius: 4px;
+		border: 1px solid;
+		cursor: pointer;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		transition: all 0.2s ease;
+	}
+
+	.chatgpt-btn {
+		background: #10a37f;
+		color: white;
+		border-color: #10a37f;
+	}
+
+	.chatgpt-btn:hover {
+		background: #0d8a6a;
+		border-color: #0d8a6a;
+	}
+
+	.claude-btn {
+		background: #ff6b35;
+		color: white;
+		border-color: #ff6b35;
+	}
+
+	.claude-btn:hover {
+		background: #e55a2b;
+		border-color: #e55a2b;
 	}
 	
 	.prompt-content pre {
@@ -469,7 +666,7 @@ ${template.template}`;
 		background: #005a87;
 	}
 
-	.template-link {
+	template-link {
 		background: none;
 		border: none;
 		color: #007cba;
@@ -480,9 +677,83 @@ ${template.template}`;
 		font-family: inherit;
 	}
 
-	.template-link:hover {
+	template-link:hover {
 		background: none;
 		color: #005a87;
 		text-decoration: none;
+	}
+
+	.modal-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		width: 100%;
+		height: 100%;
+		background: rgba(0, 0, 0, 0.5);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+	}
+
+	.modal {
+		background: white;
+		padding: 30px;
+		border-radius: 8px;
+		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+		max-width: 600px;
+		width: 90%;
+	}
+
+	.modal h3 {
+		margin-top: 0;
+		margin-bottom: 20px;
+		color: #333;
+	}
+
+	.modal textarea {
+		width: 100%;
+		min-height: 120px;
+		padding: 12px;
+		border: 1px solid #ddd;
+		border-radius: 4px;
+		font-family: inherit;
+		resize: vertical;
+		margin-bottom: 20px;
+	}
+
+	.modal-actions {
+		display: flex;
+		gap: 12px;
+		justify-content: flex-end;
+	}
+
+	.modal-actions button {
+		padding: 10px 20px;
+		border-radius: 4px;
+		border: 1px solid;
+		cursor: pointer;
+		font-weight: 500;
+	}
+
+	.modal-actions .primary {
+		background: #007cba;
+		color: white;
+		border-color: #007cba;
+	}
+
+	.modal-actions .primary:hover {
+		background: #005a87;
+		border-color: #005a87;
+	}
+
+	.modal-actions .secondary {
+		background: white;
+		color: #666;
+		border-color: #ddd;
+	}
+
+	.modal-actions .secondary:hover {
+		background: #f8f9fa;
 	}
 </style>

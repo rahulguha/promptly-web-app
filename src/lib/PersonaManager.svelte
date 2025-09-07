@@ -2,6 +2,9 @@
 	import { api, type Persona } from './api.js';
 	import { onMount } from 'svelte';
 	import RichDropdown from './RichDropdown.svelte';
+	import { selectedProfile } from './stores/profileStore';
+	import { dispatchEvent } from './stores/eventBus';
+	import type { Profile } from '$lib/api';
 
 	let personas: Persona[] = [];
 	let showForm = false;
@@ -13,6 +16,27 @@
 	
 	let showUserRoleFields = false;
 	let showLLMRoleFields = false;
+	let currentProfile: Profile | null = null;
+
+	selectedProfile.subscribe(value => {
+		currentProfile = value;
+	});
+
+	$: {
+		if (currentProfile) {
+			loadPersonas(currentProfile.id);
+		} else {
+			personas = [];
+		}
+	}
+
+	async function loadPersonas(profileId: string) {
+		try {
+			personas = await api.getPersonas(profileId);
+		} catch (error) {
+			console.error('Failed to load personas:', error);
+		}
+	}
 	
 	$: userRoleOptions = uniqueUserRoles.map(role => {
 		return {
@@ -34,19 +58,16 @@
 	$: uniqueUserRoles = personas ? [...new Set(personas.map(p => p.user_role_display))] : [];
 	$: uniqueLLMRoles = personas ? [...new Set(personas.map(p => p.llm_role_display))] : [];
 
-	onMount(async () => {
-		try {
-			personas = await api.getPersonas();
-		} catch (error) {
-			console.error('Failed to load personas:', error);
-		}
-	});
-
 	async function createPersona() {
+		if (!currentProfile) {
+			alert('Please select a profile first.');
+			return;
+		}
 		try {
-			const created = await api.createPersona(newPersona);
+			const created = await api.createPersona(newPersona, currentProfile.id);
 			if (created) {
 				personas = [...personas, created];
+				dispatchEvent('personaCreated', created);
 				resetForm();
 			} else {
 				console.error('Failed to create persona: No data returned');

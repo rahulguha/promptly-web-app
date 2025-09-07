@@ -12,9 +12,9 @@
 		isAuthenticated = state.isAuthenticated;
 		user = state.user;
 		loading = state.loading;
-		// if (user) {
-		// 	console.log('User object:', user);
-		// }
+		if (user) {
+			console.log('User object:', user);
+		}
 	});
 
 	onMount(() => {

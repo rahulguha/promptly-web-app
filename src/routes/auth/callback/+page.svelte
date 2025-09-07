@@ -9,7 +9,7 @@
 
     if (code) {
       try {
-        const response = await fetch(`${import.meta.env.VITE_PUBLIC_BACKEND_API_BASE_URL}/api/auth/callback?code=${code}`, {
+        const response = await fetch(`${import.meta.env.VITE_PUBLIC_BACKEND_API_BASE_URL}/api/auth/callback?code=${code}`, {});
 
         if (response.ok) {
           // The backend will set a session cookie.

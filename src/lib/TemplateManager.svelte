@@ -3,6 +3,9 @@
 	import { onMount } from 'svelte';
 	import RichDropdown from './RichDropdown.svelte';
 
+	import { selectedProfile } from './stores/profileStore';
+	import type { Profile } from '$lib/api';
+
 	let templates: PromptTemplate[] = [];
 	let personas: Persona[] = [];
 	let showForm = false;
@@ -17,9 +20,32 @@
 	};
 
 	let calculatedTemplate = '';
+	let currentProfile: Profile | null = null;
+
+	selectedProfile.subscribe(value => {
+		currentProfile = value;
+	});
 
 	$: {
-		const selectedPersona = personas.find(p => p.persona_id === newTemplate.persona_id);
+		if (currentProfile) {
+			loadTemplatesAndPersonas(currentProfile.id);
+		} else {
+			templates = [];
+			personas = [];
+		}
+	}
+
+	async function loadTemplatesAndPersonas(profileId: string) {
+		try {
+			templates = await api.getTemplates(profileId);
+			personas = await api.getPersonas(profileId);
+		} catch (error) {
+			console.error('Failed to load data:', error);
+		}
+	}
+
+	$: {
+		const selectedPersona = personas ? personas.find(p => p.persona_id === newTemplate.persona_id) : null;
 		const metaRole = selectedPersona ? `I am a ${selectedPersona.user_role_display}.\nYou are a ${selectedPersona.llm_role_display}. 
 Please respond clearly, in a way that fits my background as a ${selectedPersona.user_role_display}, 
 while staying in your role as a ${selectedPersona.llm_role_display}.` : '';
@@ -40,14 +66,25 @@ ${newTemplate.answer_guideline}`);
 		calculatedTemplate = templateParts.join('\n\n');
 	}
 
-	onMount(async () => {
-		try {
-			templates = await api.getTemplates();
-			personas = await api.getPersonas();
-		} catch (error) {
-			console.error('Failed to load data:', error);
+	function extractVariables(text: string): string[] {
+		const regex = /\{\{([^}]+)\}\}/g;
+		const matches = text.match(regex);
+		if (matches) {
+			return [...new Set(matches.map(match => match.substring(2, match.length - 2).trim()))];
 		}
-	});
+		return [];
+	}
+
+	$: {
+		const taskVars = extractVariables(newTemplate.task);
+		const guidelineVars = extractVariables(newTemplate.answer_guideline);
+		const allVars = [...new Set([...taskVars, ...guidelineVars])];
+		
+		// Only update if the variables have actually changed to avoid infinite loops
+		if (JSON.stringify(allVars) !== JSON.stringify(newTemplate.variables)) {
+			newTemplate.variables = allVars;
+		}
+	}
 
 	function addVariable() {
 		newTemplate.variables = [...newTemplate.variables, ''];
@@ -66,6 +103,7 @@ ${newTemplate.answer_guideline}`);
 			});
 			if (created) {
 				templates = [...templates, created];
+				dispatchEvent('templateCreated', created);
 				resetForm();
 			} else {
 				console.error('Failed to create template: No data returned');
@@ -203,14 +241,16 @@ ${newTemplate.answer_guideline}`);
 			></textarea>
 
 			<div class="variables-section">
-				<h4>Variables</h4>
-				{#each newTemplate.variables as variable, i}
-					<div class="variable-input">
-						<input bind:value={newTemplate.variables[i]} placeholder="Variable name" />
-						<button type="button" onclick={() => removeVariable(i)}>Remove</button>
+				<h4>Detected Variables</h4>
+				{#if newTemplate.variables.length > 0}
+					<div class="variable-tags">
+						{#each newTemplate.variables as variable}
+							<span class="variable-tag">{variable}</span>
+						{/each}
 					</div>
-				{/each}
-				<button type="button" onclick={addVariable}>Add Variable</button>
+				{:else}
+					<p>No variables detected. Use {'{{variable_name}}'} in your task or guideline.</p>
+				{/if}
 			</div>
 
 			<div class="readonly-template">
@@ -304,6 +344,19 @@ ${newTemplate.answer_guideline}`);
 		padding: 8px;
 		border: 1px solid #ccc;
 		border-radius: 4px;
+	}
+
+	.variable-tags {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+	}
+
+	.variable-tag {
+		background-color: #e0e0e0;
+		padding: 4px 8px;
+		border-radius: 4px;
+		font-family: monospace;
 	}
 
 	.readonly-template {

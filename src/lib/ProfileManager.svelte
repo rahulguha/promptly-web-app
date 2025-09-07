@@ -2,6 +2,8 @@
   import { api, type Profile } from './api';
   import { onMount } from 'svelte';
   import nlp from 'compromise';
+  import { selectedProfile } from './stores/profileStore';
+  import { browser } from '$app/environment';
 
   let profiles: Profile[] = [];
   let showForm = false;
@@ -21,6 +23,12 @@
       console.error('Failed to load profiles:', error);
     }
   });
+
+  function selectProfile(profile: Profile) {
+    selectedProfile.set(profile);
+    console.log('Selected profile ID:', profile.id);
+  }
+
 
   async function createProfile() {
     try {
@@ -267,16 +275,18 @@
   }
 
   function handleDescriptionChange() {
-    clearTimeout(descriptionTimeout);
-    descriptionTimeout = window.setTimeout(() => {
-      if (newProfile.description.length > 10) {
-        const extracted = extractAttributesWithCompromise(newProfile.description);
-        newProfile.attributes = { ...newProfile.attributes, ...extracted };
-        if (newProfile.attributes.intent === undefined) {
-          newProfile.attributes.intent = '';
+    if (browser) {
+      clearTimeout(descriptionTimeout);
+      descriptionTimeout = window.setTimeout(() => {
+        if (newProfile.description.length > 10) {
+          const extracted = extractAttributesWithCompromise(newProfile.description);
+          newProfile.attributes = { ...newProfile.attributes, ...extracted };
+          if (newProfile.attributes.intent === undefined) {
+            newProfile.attributes.intent = '';
+          }
         }
-      }
-    }, 300); // Debounce for 300ms
+      }, 300); // Debounce for 300ms
+    }
   }
 </script>
 
@@ -397,6 +407,7 @@
     {#each profiles as profile}
       <div class="profile-item">
         <div class="profile-actions">
+          <button class="select-btn" on:click={() => selectProfile(profile)}>Select</button>
           <button class="icon-btn edit-btn" on:click={() => editProfile(profile)} title="Edit">
             ✏️
           </button>
@@ -552,6 +563,21 @@
   .icon-btn:hover {
     background: #e9ecef;
   }
+
+  .select-btn {
+    padding: 8px 12px;
+    background: #28a745;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+  }
+
+  .select-btn:hover {
+    background: #218838;
+  }
+
   button {
     padding: 10px 15px;
     background: #007cba;
