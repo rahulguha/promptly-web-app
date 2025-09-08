@@ -147,7 +147,7 @@
 			on:click={() => setActiveTab('generate')}
 			disabled={!currentProfile}
 		>
-			Generate Prompts
+			Prompts
 		</button>
 	</div>
 

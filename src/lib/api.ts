@@ -53,6 +53,15 @@ export interface Prompt {
   content: string;
 }
 
+export interface Intent {
+  intent: string;  // This is the ID field in the API response
+  name: string;
+  description: string;
+  system_prompt: string;
+  keywords: string[];
+  tag: string;
+}
+
 // Define a type for our API request options that allows a structured body.
 type ApiRequestOptions = Omit<RequestInit, "body"> & {
   body?: unknown;
@@ -180,20 +189,14 @@ export const api = {
 
   // Prompts
   generatePrompt(
-    templateId: string,
     name: string,
-    values: Record<string, string>,
-    content: string,
-    profile_id: string
+    content: string
   ): Promise<Prompt> {
     return apiRequest("/generate-prompt", {
       method: "POST",
       body: {
-        template_id: templateId,
         name: name,
-        variable_values: values,
         content: content,
-        profile_id: profile_id,
       },
     });
   },
@@ -208,5 +211,10 @@ export const api = {
 
   deletePrompt(id: string): Promise<void> {
     return apiRequest(`/prompts/${id}`, { method: "DELETE" });
+  },
+
+  // Intents
+  getIntents(): Promise<Intent[]> {
+    return apiRequest("/intents");
   },
 };
