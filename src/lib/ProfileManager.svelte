@@ -18,9 +18,13 @@
 
   onMount(async () => {
     try {
-      profiles = await api.getProfiles();
+      console.log('Loading profiles in onMount...');
+      const loadedProfiles = await api.getProfiles();
+      console.log('Loaded profiles:', loadedProfiles);
+      profiles = loadedProfiles || []; // Ensure it's never null/undefined
     } catch (error) {
       console.error('Failed to load profiles:', error);
+      profiles = []; // Fallback to empty array on error
     }
   });
 
@@ -32,9 +36,20 @@
 
   async function createProfile() {
     try {
+      console.log('Creating profile with data:', newProfile);
+      console.log('Current profiles before create:', profiles);
+      
       const created = await api.createProfile(newProfile);
+      console.log('Created profile response:', created);
+      
       if (created) {
+        // Ensure profiles is an array before spreading
+        if (!Array.isArray(profiles)) {
+          console.warn('profiles is not an array, resetting to empty array:', profiles);
+          profiles = [];
+        }
         profiles = [...profiles, created];
+        console.log('Updated profiles:', profiles);
         resetForm();
       } else {
         console.error('Failed to create profile: No data returned');
@@ -111,24 +126,40 @@
       }
 
       // Interests - improved pattern matching
-      const interestPatterns = [
-        doc.match('(studying|love|like|interested in|enjoy|passionate about) #Noun+'),
-        doc.match('(love|like) (to #Verb|#Verb+ing)'),
-        doc.match('interested in #Noun+')
-      ];
-
       let interests: string[] = [];
-      interestPatterns.forEach(pattern => {
-        if (pattern.found) {
-          const extracted = pattern.nouns().out('array');
-          interests = [...interests, ...extracted];
-        }
-      });
 
-      // Remove duplicates and common words
-      interests = [...new Set(interests)].filter(interest => 
-        interest.length > 2 && !['thing', 'things', 'stuff'].includes(interest.toLowerCase())
-      );
+      // Look for explicit interest lists first
+      const interestListPattern = doc.match('interested in [*]');
+      if (interestListPattern.found) {
+        const interestText = interestListPattern.groups()[0]?.text();
+        if (interestText) {
+          // Split on common delimiters and clean up
+          interests = interestText
+            .split(/,|and|&|\n/)
+            .map(s => s.trim())
+            .filter(s => s.length > 1 && !['etc', 'etc.', 'etc etc'].includes(s.toLowerCase()));
+        }
+      }
+
+      // If no explicit interests found, try general patterns
+      if (interests.length === 0) {
+        const interestPatterns = [
+          doc.match('(studying|love|like|interested in|enjoy|passionate about) #Noun+'),
+          doc.match('(love|like) (to #Verb|#Verb+ing)')
+        ];
+
+        interestPatterns.forEach(pattern => {
+          if (pattern.found) {
+            const extracted = pattern.nouns().out('array');
+            interests = [...interests, ...extracted];
+          }
+        });
+
+        // Remove duplicates and common words
+        interests = [...new Set(interests)].filter(interest => 
+          interest.length > 2 && !['thing', 'things', 'stuff'].includes(interest.toLowerCase())
+        );
+      }
 
       if (interests.length > 0) {
         attributes.interests = interests;
@@ -165,34 +196,58 @@
       
       // Enhanced pattern matching for locations
       if (Object.keys(location).length === 0) {
-        // Look for City, State patterns first (like "Flower Mound, TX")
-        const cityStatePattern = doc.match('#ProperNoun+ #ProperNoun*, #Abbreviation');
-        if (cityStatePattern.found) {
-          const fullMatch = cityStatePattern.text();
-          const parts = fullMatch.split(',').map(s => s.trim());
-          if (parts.length === 2) {
-            location.city = parts[0];
-            const stateAbbr = parts[1].toUpperCase();
-            
-            // Map state abbreviations to full names
-            const stateMap: Record<string, string> = {
-              'AL': 'Alabama', 'AK': 'Alaska', 'AZ': 'Arizona', 'AR': 'Arkansas', 'CA': 'California',
-              'CO': 'Colorado', 'CT': 'Connecticut', 'DE': 'Delaware', 'FL': 'Florida', 'GA': 'Georgia',
-              'HI': 'Hawaii', 'ID': 'Idaho', 'IL': 'Illinois', 'IN': 'Indiana', 'IA': 'Iowa',
-              'KS': 'Kansas', 'KY': 'Kentucky', 'LA': 'Louisiana', 'ME': 'Maine', 'MD': 'Maryland',
-              'MA': 'Massachusetts', 'MI': 'Michigan', 'MN': 'Minnesota', 'MS': 'Mississippi', 'MO': 'Missouri',
-              'MT': 'Montana', 'NE': 'Nebraska', 'NV': 'Nevada', 'NH': 'New Hampshire', 'NJ': 'New Jersey',
-              'NM': 'New Mexico', 'NY': 'New York', 'NC': 'North Carolina', 'ND': 'North Dakota', 'OH': 'Ohio',
-              'OK': 'Oklahoma', 'OR': 'Oregon', 'PA': 'Pennsylvania', 'RI': 'Rhode Island', 'SC': 'South Carolina',
-              'SD': 'South Dakota', 'TN': 'Tennessee', 'TX': 'Texas', 'UT': 'Utah', 'VT': 'Vermont',
-              'VA': 'Virginia', 'WA': 'Washington', 'WV': 'West Virginia', 'WI': 'Wisconsin', 'WY': 'Wyoming'
-            };
-            
-            if (stateMap[stateAbbr]) {
-              location.state = stateMap[stateAbbr];
+        // Use regex to find City, State patterns more reliably
+        const locationRegex = /(living in|in|from)\s+([A-Z][a-z\s]+),\s*([A-Z]{2})/i;
+        const locationMatch = text.match(locationRegex);
+        
+        if (locationMatch) {
+          location.city = locationMatch[2].trim();
+          const stateAbbr = locationMatch[3].toUpperCase();
+          
+          // Map state abbreviations to full names
+          const stateMap: Record<string, string> = {
+            'AL': 'Alabama', 'AK': 'Alaska', 'AZ': 'Arizona', 'AR': 'Arkansas', 'CA': 'California',
+            'CO': 'Colorado', 'CT': 'Connecticut', 'DE': 'Delaware', 'FL': 'Florida', 'GA': 'Georgia',
+            'HI': 'Hawaii', 'ID': 'Idaho', 'IL': 'Illinois', 'IN': 'Indiana', 'IA': 'Iowa',
+            'KS': 'Kansas', 'KY': 'Kentucky', 'LA': 'Louisiana', 'ME': 'Maine', 'MD': 'Maryland',
+            'MA': 'Massachusetts', 'MI': 'Michigan', 'MN': 'Minnesota', 'MS': 'Mississippi', 'MO': 'Missouri',
+            'MT': 'Montana', 'NE': 'Nebraska', 'NV': 'Nevada', 'NH': 'New Hampshire', 'NJ': 'New Jersey',
+            'NM': 'New Mexico', 'NY': 'New York', 'NC': 'North Carolina', 'ND': 'North Dakota', 'OH': 'Ohio',
+            'OK': 'Oklahoma', 'OR': 'Oregon', 'PA': 'Pennsylvania', 'RI': 'Rhode Island', 'SC': 'South Carolina',
+            'SD': 'South Dakota', 'TN': 'Tennessee', 'TX': 'Texas', 'UT': 'Utah', 'VT': 'Vermont',
+            'VA': 'Virginia', 'WA': 'Washington', 'WV': 'West Virginia', 'WI': 'Wisconsin', 'WY': 'Wyoming'
+          };
+          
+          location.state = stateMap[stateAbbr] || stateAbbr;
+          location.country = 'USA';
+        }
+        
+        // Fallback to compromise.js pattern if regex didn't work
+        if (Object.keys(location).length === 0) {
+          const cityStatePattern = doc.match('#ProperNoun+ #ProperNoun*, #Abbreviation');
+          if (cityStatePattern.found) {
+            const fullMatch = cityStatePattern.text();
+            const parts = fullMatch.split(',').map(s => s.trim());
+            if (parts.length === 2) {
+              location.city = parts[0];
+              const stateAbbr = parts[1].toUpperCase();
+              
+              // Use the same state map as above
+              const stateMap: Record<string, string> = {
+                'AL': 'Alabama', 'AK': 'Alaska', 'AZ': 'Arizona', 'AR': 'Arkansas', 'CA': 'California',
+                'CO': 'Colorado', 'CT': 'Connecticut', 'DE': 'Delaware', 'FL': 'Florida', 'GA': 'Georgia',
+                'HI': 'Hawaii', 'ID': 'Idaho', 'IL': 'Illinois', 'IN': 'Indiana', 'IA': 'Iowa',
+                'KS': 'Kansas', 'KY': 'Kentucky', 'LA': 'Louisiana', 'ME': 'Maine', 'MD': 'Maryland',
+                'MA': 'Massachusetts', 'MI': 'Michigan', 'MN': 'Minnesota', 'MS': 'Mississippi', 'MO': 'Missouri',
+                'MT': 'Montana', 'NE': 'Nebraska', 'NV': 'Nevada', 'NH': 'New Hampshire', 'NJ': 'New Jersey',
+                'NM': 'New Mexico', 'NY': 'New York', 'NC': 'North Carolina', 'ND': 'North Dakota', 'OH': 'Ohio',
+                'OK': 'Oklahoma', 'OR': 'Oregon', 'PA': 'Pennsylvania', 'RI': 'Rhode Island', 'SC': 'South Carolina',
+                'SD': 'South Dakota', 'TN': 'Tennessee', 'TX': 'Texas', 'UT': 'Utah', 'VT': 'Vermont',
+                'VA': 'Virginia', 'WA': 'Washington', 'WV': 'West Virginia', 'WI': 'Wisconsin', 'WY': 'Wyoming'
+              };
+              
+              location.state = stateMap[stateAbbr] || stateAbbr;
               location.country = 'USA';
-            } else {
-              location.state = stateAbbr;
             }
           }
         }

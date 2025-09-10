@@ -37,10 +37,19 @@
 
 	async function loadTemplatesAndPersonas(profileId: string) {
 		try {
-			templates = await api.getTemplates(profileId);
-			personas = await api.getPersonas(profileId);
+			console.log('Loading templates and personas for profile:', profileId);
+			const [templatesData, personasData] = await Promise.all([
+				api.getTemplates(profileId),
+				api.getPersonas(profileId)
+			]);
+			console.log('Loaded templates:', templatesData);
+			console.log('Loaded personas:', personasData);
+			templates = templatesData || []; // Ensure it's never null/undefined
+			personas = personasData || []; // Ensure it's never null/undefined
 		} catch (error) {
 			console.error('Failed to load data:', error);
+			templates = []; // Fallback to empty array on error
+			personas = []; // Fallback to empty array on error
 		}
 	}
 
@@ -96,13 +105,31 @@ ${newTemplate.answer_guideline}`);
 
 	async function createTemplate() {
 		try {
+			console.log('Creating template with data:', newTemplate);
+			console.log('Current templates before create:', templates);
+			
 			const variables = newTemplate.variables.filter(v => v.trim());
+			
+			// Validate that {{query}} variable is required
+			if (!variables.includes('query')) {
+				alert('Templates must include a {{query}} variable. Please add "query" to the variables list.');
+				return;
+			}
+			
 			const created = await api.createTemplate({
 				...newTemplate,
 				variables
 			});
+			console.log('Created template response:', created);
+			
 			if (created) {
+				// Ensure templates is an array before spreading
+				if (!Array.isArray(templates)) {
+					console.warn('templates is not an array, resetting to empty array:', templates);
+					templates = [];
+				}
 				templates = [...templates, created];
+				console.log('Updated templates:', templates);
 				dispatchEvent('templateCreated', created);
 				resetForm();
 			} else {
@@ -116,6 +143,12 @@ ${newTemplate.answer_guideline}`);
 	async function updateTemplate() {
 		if (!editingTemplate) return;
 		const variables = newTemplate.variables.filter(v => v.trim());
+		
+		// Validate that {{query}} variable is required
+		if (!variables.includes('query')) {
+			alert('Templates must include a {{query}} variable. Please add "query" to the variables list.');
+			return;
+		}
 		
 		let updated;
 		if (creatingVersion) {

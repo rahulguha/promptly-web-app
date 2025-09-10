@@ -23,10 +23,10 @@
 	let currentProfile: Profile | null = null;
 	let displayedVariables: string[] = [];
 	let copiedPromptId: string | null = null;
-	let showQueryModal = false;
-	let userQuery = '';
-	let selectedLLM = '';
-	let selectedPrompt: Prompt | null = null;
+	// let showQueryModal = false;
+	// let userQuery = '';
+	// let selectedLLM = '';
+	// let selectedPrompt: Prompt | null = null;
 	let showSystemPrompt = false;
 	let expandedPrompts: Set<string> = new Set();
 	let showPromptPreviewModal = false;
@@ -129,6 +129,18 @@
 			templates = templatesData;
 			personas = personasData;
 			generatedPrompts = promptsData;
+			
+			// Debug: Check for template mismatches
+			console.log('Loaded templates:', templates.map(t => `${t.id}:${t.version} (${t.name})`));
+			console.log('Loaded prompts:', promptsData.map(p => `${p.name} -> template ${p.template_id}:${p.template_version}`));
+			
+			// Check for orphaned prompts
+			const orphanedPrompts = promptsData.filter(prompt => 
+				!templates.find(t => t.id === prompt.template_id && t.version === prompt.template_version)
+			);
+			if (orphanedPrompts.length > 0) {
+				console.warn('Found prompts with missing templates:', orphanedPrompts.map(p => `${p.name} -> ${p.template_id}:${p.template_version}`));
+			}
 		} catch (error) {
 			console.error('Failed to load data:', error);
 		}
@@ -168,6 +180,12 @@
 	async function generatePrompt(e: Event) {
 		e.preventDefault();
 		if (!selectedTemplateId || !currentProfile) return;
+		
+		// Validate that query variable is populated
+		if (!variables.query || !variables.query.trim()) {
+			alert('Please fill in the {{query}} field before generating a prompt.');
+			return;
+		}
 		
 		try {
 			if (editingPrompt) {
@@ -218,7 +236,19 @@
 
 	function getTemplateDisplay(templateId: string, templateVersion?: number) {
 		const template = templates.find(t => t.id === templateId && (templateVersion ? t.version === templateVersion : true));
-		if (!template) return 'Unknown';
+		if (!template) {
+			console.warn('Template not found:', templateId, 'version:', templateVersion, 'Available templates:', templates.map(t => `${t.id}:${t.version}`));
+			// Show a more user-friendly message for missing templates
+			const shortId = templateId.substring(0, 8);
+			return `Template ${shortId}${templateVersion ? ` v${templateVersion}` : ''} (unavailable)`;
+		}
+		
+		// Try to show template name if available
+		if (template.name) {
+			return `${template.name} (v${template.version})`;
+		}
+		
+		// Fallback to persona display
 		const personaDisplay = getPersonaDisplay(template.persona_id);
 		return `${personaDisplay} (v${template.version})`;
 	}
@@ -343,38 +373,67 @@ ${template.template}`;
 		}
 	}
 
-	function openQueryModal(prompt: Prompt, llm: string) {
-		selectedPrompt = prompt;
-		selectedLLM = llm;
-		userQuery = '';
-		showQueryModal = true;
-	}
-
-	function closeQueryModal() {
-		showQueryModal = false;
-		selectedPrompt = null;
-		selectedLLM = '';
-		userQuery = '';
-	}
-
-	async function executeWithQuery() {
-		if (!selectedPrompt || !userQuery.trim()) return;
-		
-		// Combine the prompt with the user's query
-		const fullContent = selectedPrompt.content + '\n\n[User Query]\n' + userQuery.trim();
-		
-		const copied = await copyToClipboard(fullContent);
+	async function directCopyAndOpenLLM(prompt: Prompt, llm: string) {
+		const copied = await copyToClipboard(prompt.content);
 		if (copied) {
-			copiedPromptId = selectedPrompt.id;
+			copiedPromptId = prompt.id;
 			
 			// Open the appropriate LLM
-			const url = selectedLLM === 'chatgpt' ? 'https://chat.openai.com/' : 'https://claude.ai/';
+			let url;
+			switch(llm) {
+				case 'chatgpt':
+					url = 'https://chat.openai.com/';
+					break;
+				case 'claude':
+					url = 'https://claude.ai/';
+					break;
+				case 'perplexity':
+					url = 'https://www.perplexity.ai/';
+					break;
+				case 'gemini':
+					url = 'https://gemini.google.com/';
+					break;
+				default:
+					url = 'https://chat.openai.com/';
+			}
 			window.open(url, '_blank');
 			
 			setTimeout(() => copiedPromptId = null, 2000);
-			closeQueryModal();
 		}
 	}
+
+	// function openQueryModal(prompt: Prompt, llm: string) {
+	// 	selectedPrompt = prompt;
+	// 	selectedLLM = llm;
+	// 	userQuery = '';
+	// 	showQueryModal = true;
+	// }
+
+	// function closeQueryModal() {
+	// 	showQueryModal = false;
+	// 	selectedPrompt = null;
+	// 	selectedLLM = '';
+	// 	userQuery = '';
+	// }
+
+	// async function executeWithQuery() {
+	// 	if (!selectedPrompt || !userQuery.trim()) return;
+	// 	
+	// 	// Combine the prompt with the user's query
+	// 	const fullContent = selectedPrompt.content + '\n\n[User Query]\n' + userQuery.trim();
+	// 	
+	// 	const copied = await copyToClipboard(fullContent);
+	// 	if (copied) {
+	// 		copiedPromptId = selectedPrompt.id;
+	// 		
+	// 		// Open the appropriate LLM
+	// 		const url = selectedLLM === 'chatgpt' ? 'https://chat.openai.com/' : 'https://claude.ai/';
+	// 		window.open(url, '_blank');
+	// 		
+	// 		setTimeout(() => copiedPromptId = null, 2000);
+	// 		closeQueryModal();
+	// 	}
+	// }
 
 	function togglePromptExpansion(promptId: string) {
 		if (expandedPrompts.has(promptId)) {
@@ -396,19 +455,35 @@ ${template.template}`;
 	async function savePromptFromPreview() {
 		if (!currentProfile || !previewPromptName || !previewPromptContent) return;
 		
+		// Additional check to ensure query was populated (check if {{query}} still exists in content)
+		if (previewPromptContent.includes('{{query}}')) {
+			alert('Cannot save prompt: {{query}} variable was not filled. Please go back and fill the query field.');
+			return;
+		}
+		
 		try {
-			console.log('Saving complete prompt content:', previewPromptContent);
+			console.log('Saving prompt with data:', {
+				name: previewPromptName,
+				templateId: previewTemplateId,
+				variables: previewVariables,
+				contentLength: previewPromptContent.length
+			});
 			
-			// Send only name and complete content to backend
+			// Send name, content, and template info to backend for proper association
 			const prompt = await api.generatePrompt(
 				previewPromptName, 
-				previewPromptContent  // This is the complete prompt content from the modal
+				previewPromptContent,  // This is the complete prompt content from the modal
+				previewTemplateId,
+				previewVariables,
+				currentProfile.id  // Add profile_id as required by new API
 			);
 			
 			console.log('Received saved prompt from API:', prompt);
 			
 			if (prompt) {
-				generatedPrompts = [prompt, ...generatedPrompts];
+				// Reload all prompts from backend to ensure we have the latest data
+				await loadData(currentProfile.id);
+				
 				// Clear form
 				variables = {};
 				selectedTemplateId = '';
@@ -508,6 +583,7 @@ ${template.template}`;
 				/>
 			</div>
 		</div>
+		<p class="llm-instructions">Click on the LLM to copy the prompt and open the LLM screen. Paste (Ctrl+V) there to use the prompt</p>
 		{#each filteredPrompts as prompt}
 			<div class="prompt-card">
 				<div class="prompt-header">
@@ -532,11 +608,17 @@ ${template.template}`;
 						</div>
 					</div>
 					<div class="prompt-actions">
-						<button class="llm-btn chatgpt-btn" on:click={() => openQueryModal(prompt, 'chatgpt')} title="Test in ChatGPT">
+						<button class="llm-btn chatgpt-btn" on:click={() => directCopyAndOpenLLM(prompt, 'chatgpt')} title="Copy prompt and open ChatGPT">
 							{copiedPromptId === prompt.id ? 'Copied!' : 'ChatGPT'}
 						</button>
-						<button class="llm-btn claude-btn" on:click={() => openQueryModal(prompt, 'claude')} title="Test in Claude">
+						<button class="llm-btn claude-btn" on:click={() => directCopyAndOpenLLM(prompt, 'claude')} title="Copy prompt and open Claude">
 							{copiedPromptId === prompt.id ? 'Copied!' : 'Claude'}
+						</button>
+						<button class="llm-btn perplexity-btn" on:click={() => directCopyAndOpenLLM(prompt, 'perplexity')} title="Copy prompt and open Perplexity">
+							{copiedPromptId === prompt.id ? 'Copied!' : 'Perplexity'}
+						</button>
+						<button class="llm-btn gemini-btn" on:click={() => directCopyAndOpenLLM(prompt, 'gemini')} title="Copy prompt and open Gemini">
+							{copiedPromptId === prompt.id ? 'Copied!' : 'Gemini'}
 						</button>
 						<button class="icon-btn edit-btn" on:click={() => editPrompt(prompt)} title="Edit">
 							✏️
@@ -565,8 +647,8 @@ ${template.template}`;
 	</div>
 </div>
 
-<!-- Query Modal -->
-{#if showQueryModal}
+<!-- Query Modal - Commented out for direct copy functionality -->
+<!-- {#if showQueryModal}
 	<div class="modal-overlay" on:click={closeQueryModal}>
 		<div class="modal" on:click|stopPropagation>
 			<h3>Test Prompt with {selectedLLM === 'chatgpt' ? 'ChatGPT' : 'Claude'}</h3>
@@ -584,7 +666,7 @@ ${template.template}`;
 			</div>
 		</div>
 	</div>
-{/if}
+{/if} -->
 
 <!-- Prompt Preview Modal -->
 {#if showPromptPreviewModal}
@@ -1003,6 +1085,38 @@ ${template.template}`;
 	.claude-btn:hover {
 		background: #e55a2b;
 		border-color: #e55a2b;
+	}
+
+	.perplexity-btn {
+		background: #1fb8cd;
+		color: white;
+		border-color: #1fb8cd;
+	}
+
+	.perplexity-btn:hover {
+		background: #1a9fb1;
+		border-color: #1a9fb1;
+	}
+
+	.gemini-btn {
+		background: #4285f4;
+		color: white;
+		border-color: #4285f4;
+	}
+
+	.gemini-btn:hover {
+		background: #3367d6;
+		border-color: #3367d6;
+	}
+
+	.llm-instructions {
+		color: #666;
+		font-size: 14px;
+		margin: 0 0 20px 0;
+		padding: 10px;
+		background: #f8f9fa;
+		border-radius: 6px;
+		border-left: 4px solid #007cba;
 	}
 	
 	.prompt-content pre {

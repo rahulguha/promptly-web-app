@@ -35,10 +35,14 @@
 <div class="app">
 	<header>
 		<div class="header-content">
-			<img src="/promptly-logo.png" alt="Promptly" class="logo" />
+
+			<a href="/">
+				<img src="/promptly-logo.png" alt="Promptly" class="logo" />
+			</a>
 			<div class="header-text">
 				<h1>Promptly</h1> 
-				<p>opensourced Prompt Management System</p>
+				<p> Create, Role Play, Version, Export your Prompts Securely <br/> 
+				We help you with best practices </p>
 			</div>
 			<div class="auth-controls">
 				{#if loading}
@@ -76,7 +80,7 @@
 	header {
 		background: #ebdf8f;
 		color: rgb(9, 9, 9);
-		padding: 2px 2px;
+		padding: 1px 1px;
 	}
 	
 	.header-content {
@@ -89,8 +93,8 @@
 	}
 	
 	.logo {
-		width: 100px;
-		height: 100px;
+		width: 150px;
+		height: 150px;
 		object-fit: contain;
 	}
 	

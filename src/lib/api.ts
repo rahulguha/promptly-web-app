@@ -51,6 +51,7 @@ export interface Prompt {
   template_version: number;
   variable_values: Record<string, string>;
   content: string;
+  profile_id: string;
 }
 
 export interface Intent {
@@ -190,13 +191,33 @@ export const api = {
   // Prompts
   generatePrompt(
     name: string,
-    content: string
+    content: string,
+    templateId: string,
+    variables: Record<string, string>,
+    profileId: string
   ): Promise<Prompt> {
+    // Parse template ID and version
+    const [template_id, versionStr] = templateId.split(':');
+    const template_version = parseInt(versionStr);
+    
+    console.log('API generatePrompt called with:', {
+      name,
+      templateId,
+      template_id,
+      template_version,
+      variables,
+      profileId
+    });
+    
     return apiRequest("/generate-prompt", {
       method: "POST",
       body: {
         name: name,
         content: content,
+        template_id: template_id,
+        template_version: template_version,
+        variable_values: variables,
+        profile_id: profileId,
       },
     });
   },

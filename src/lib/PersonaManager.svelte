@@ -32,9 +32,13 @@
 
 	async function loadPersonas(profileId: string) {
 		try {
-			personas = await api.getPersonas(profileId);
+			console.log('Loading personas for profile:', profileId);
+			const loadedPersonas = await api.getPersonas(profileId);
+			console.log('Loaded personas:', loadedPersonas);
+			personas = loadedPersonas || []; // Ensure it's never null/undefined
 		} catch (error) {
 			console.error('Failed to load personas:', error);
+			personas = []; // Fallback to empty array on error
 		}
 	}
 	
@@ -64,9 +68,20 @@
 			return;
 		}
 		try {
+			console.log('Creating persona with data:', newPersona);
+			console.log('Current personas before create:', personas);
+			
 			const created = await api.createPersona(newPersona, currentProfile.id);
+			console.log('Created persona response:', created);
+			
 			if (created) {
+				// Ensure personas is an array before spreading
+				if (!Array.isArray(personas)) {
+					console.warn('personas is not an array, resetting to empty array:', personas);
+					personas = [];
+				}
 				personas = [...personas, created];
+				console.log('Updated personas:', personas);
 				dispatchEvent('personaCreated', created);
 				resetForm();
 			} else {
