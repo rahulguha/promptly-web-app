@@ -6,6 +6,8 @@
 	import { selectedProfile } from './stores/profileStore';
 	import { eventBus } from './stores/eventBus';
 	import type { Profile } from '$lib/api';
+	import { authStore } from './stores/authStore';
+	import { activityTracker, ACTIVITY_TYPES } from './activityTracker';
 
 	let templates: PromptTemplate[] = [];
 	let personas: Persona[] = [];
@@ -21,6 +23,7 @@
 	let showEditForm = false;
 	let filterTemplateId = '';
 	let currentProfile: Profile | null = null;
+	let currentUser: any = null;
 	let displayedVariables: string[] = [];
 	let copiedPromptId: string | null = null;
 	// let showQueryModal = false;
@@ -92,6 +95,11 @@
 		currentProfile = value;
 	});
 
+	// Subscribe to auth state to get current user
+	authStore.subscribe(state => {
+		currentUser = state.user;
+	});
+
 	eventBus.subscribe(event => {
 		if (event && (event.event === 'personaCreated' || event.event === 'templateCreated')) {
 			if (currentProfile) {
@@ -148,16 +156,42 @@
 
 			if (selectedTemplate) {
 				displayedVariables = extractVariables(selectedTemplate.template);
-				const newVariables = {};
-				for (const v of displayedVariables) {
-					newVariables[v] = variables[v] || '';
+				// Only reset variables if we're not in edit mode
+				if (!showEditForm || !editingPrompt) {
+					const newVariables = {};
+					for (const v of displayedVariables) {
+						newVariables[v] = variables[v] || '';
+					}
+					variables = newVariables;
+				} else {
+					// In edit mode, preserve existing variables but add any missing ones
+					const newVariables = { ...variables };
+					for (const v of displayedVariables) {
+						if (!(v in newVariables)) {
+							newVariables[v] = '';
+						}
+					}
+					variables = newVariables;
 				}
-				variables = newVariables;
 			}
 		} else {
 			selectedTemplate = null;
-			variables = {};
-			displayedVariables = [];
+			if (!showEditForm || !editingPrompt) {
+				variables = {};
+				displayedVariables = [];
+			}
+		}
+	}
+
+	// Ensure template is set correctly for edit mode
+	$: {
+		if (showEditForm && editingPrompt && templates.length > 0) {
+			// Make sure the template is found and selectedTemplate is set
+			const template = templates.find(t => t.id === editingPrompt.template_id && t.version === editingPrompt.template_version);
+			if (template && (!selectedTemplate || selectedTemplate.id !== template.id || selectedTemplate.version !== template.version)) {
+				selectedTemplate = template;
+				displayedVariables = extractVariables(template.template);
+			}
 		}
 	}
 
@@ -283,11 +317,41 @@
 	}
 
 	function editPrompt(prompt: Prompt) {
+		console.log('Editing prompt:', prompt);
+		console.log('Available templates:', templates);
+		
 		editingPrompt = prompt;
-		selectedTemplateId = `${prompt.template_id}:${prompt.template_version}`;
-		variables = { ...prompt.variable_values || {} };
-		promptName = prompt.name;
-		showEditForm = true;
+		let templateKey = `${prompt.template_id}:${prompt.template_version}`;
+		console.log('Looking for template key:', templateKey);
+		
+		// Find the template - first try exact version match
+		let template = templates.find(t => t.id === prompt.template_id && t.version === prompt.template_version);
+		
+		// If not found, try to find any version of this template (fallback for data inconsistency)
+		if (!template) {
+			console.warn('Exact template version not found, looking for any version of template:', prompt.template_id);
+			template = templates.find(t => t.id === prompt.template_id);
+			if (template) {
+				console.log('Found template with different version:', template.version, 'instead of', prompt.template_version);
+				templateKey = `${template.id}:${template.version}`;
+			}
+		}
+		
+		console.log('Found template:', template);
+		
+		if (template) {
+			selectedTemplateId = templateKey;
+			// Force set the selectedTemplate to ensure reactive statements work
+			selectedTemplate = template;
+			displayedVariables = extractVariables(template.template);
+			variables = { ...prompt.variable_values || {} };
+			promptName = prompt.name;
+			showEditForm = true;
+			console.log('Edit form setup complete', { selectedTemplateId, displayedVariables, variables });
+		} else {
+			console.error('Template not found for editing:', templateKey);
+			alert('Cannot edit prompt: Template not found. Please refresh and try again.');
+		}
 	}
 
 	async function updatePrompt() {
@@ -344,6 +408,11 @@
 		if (copied) {
 			copiedPromptId = prompt.id;
 			
+			// Track LLM execution
+			if (currentUser) {
+				await activityTracker.trackPromptExecuted(currentUser, llm as 'chatgpt' | 'claude' | 'gemini' | 'perplexity', prompt.id);
+			}
+			
 			// Open the appropriate LLM
 			let url;
 			switch(llm) {
@@ -365,6 +434,11 @@
 			window.open(url, '_blank');
 			
 			setTimeout(() => copiedPromptId = null, 2000);
+		} else {
+			// Track copy failure
+			if (currentUser) {
+				await activityTracker.trackError(currentUser, ACTIVITY_TYPES.PROMPT_EXECUTED_CHATGPT, `Failed to copy prompt to clipboard for ${llm}`);
+			}
 		}
 	}
 
@@ -447,6 +521,11 @@
 			console.log('Received saved prompt from API:', prompt);
 			
 			if (prompt) {
+				// Track successful prompt creation
+				if (currentUser) {
+					await activityTracker.trackPromptCreated(currentUser, prompt.id, currentProfile.id);
+				}
+				
 				// Reload all prompts from backend to ensure we have the latest data
 				await loadData(currentProfile.id);
 				
@@ -458,9 +537,17 @@
 				closePromptPreviewModal();
 			} else {
 				console.error('Failed to save prompt: No data returned from API');
+				// Track failure
+				if (currentUser) {
+					await activityTracker.trackError(currentUser, ACTIVITY_TYPES.PROMPT_CREATED, 'No data returned from API');
+				}
 			}
 		} catch (error) {
 			console.error('Error saving prompt:', error);
+			// Track error
+			if (currentUser) {
+				await activityTracker.trackError(currentUser, ACTIVITY_TYPES.PROMPT_CREATED, `Prompt creation error: ${error}`);
+			}
 		}
 	}
 </script>
@@ -480,13 +567,20 @@
 	</div>
 	
 	<div class="generator-form">
+		{#if showEditForm && editingPrompt}
+			<div class="editing-prompt-header">
+				<h3>Editing Prompt: {editingPrompt.name}</h3>
+				<button type="button" class="cancel-edit-btn" on:click={resetEditForm}>Cancel Edit</button>
+			</div>
+		{/if}
+		
 		<RichDropdown 
 			items={templateOptions}
 			bind:selectedValue={selectedTemplateId}
 			placeholder="Select Template"
 		/>
 
-		{#if selectedTemplate}
+		{#if selectedTemplate || (showEditForm && editingPrompt)}
 			<div class="prompt-form">
 				<div class="prompt-name-input">
 					<label>Prompt Name:</label>
@@ -532,7 +626,7 @@
 				{/if}
 				<div class="template-content-preview">
 					<h5>Template Content (with variables)</h5>
-					<pre>{previewContent}</pre>
+					<pre>{previewContent || (editingPrompt ? 'Loading template preview...' : '')}</pre>
 				</div>
 			</div>
 		{/if}
@@ -723,6 +817,37 @@
 		outline: none;
 		border-color: #007cba;
 		box-shadow: 0 0 0 2px rgba(0, 124, 186, 0.2);
+	}
+
+	.editing-prompt-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		background: #fff3cd;
+		border: 1px solid #ffeaa7;
+		border-radius: 8px;
+		padding: 15px 20px;
+		margin-bottom: 20px;
+	}
+
+	.editing-prompt-header h3 {
+		margin: 0;
+		color: #856404;
+		font-size: 16px;
+	}
+
+	.cancel-edit-btn {
+		background: #6c757d;
+		color: white;
+		border: none;
+		padding: 8px 16px;
+		border-radius: 4px;
+		font-size: 14px;
+		cursor: pointer;
+	}
+
+	.cancel-edit-btn:hover {
+		background: #5a6268;
 	}
 	
 	.generator-form {

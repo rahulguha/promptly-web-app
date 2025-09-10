@@ -63,6 +63,19 @@ export interface Intent {
   tag: string;
 }
 
+export interface TrackActivityRequest {
+  user_id: string;
+  email: string;
+  timestamp: number;
+  activity_type: string;
+  activity_result: string;
+  activity_details?: Record<string, string>;
+}
+
+export interface TrackActivityResponse {
+  message: string;
+}
+
 // Define a type for our API request options that allows a structured body.
 type ApiRequestOptions = Omit<RequestInit, "body"> & {
   body?: unknown;
@@ -237,5 +250,13 @@ export const api = {
   // Intents
   getIntents(): Promise<Intent[]> {
     return apiRequest("/intents");
+  },
+
+  // Activity Tracking
+  trackActivity(request: TrackActivityRequest): Promise<TrackActivityResponse> {
+    return apiRequest("/track/activity", {
+      method: "POST",
+      body: request,
+    });
   },
 };

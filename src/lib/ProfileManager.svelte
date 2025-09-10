@@ -4,10 +4,13 @@
   import nlp from 'compromise';
   import { selectedProfile } from './stores/profileStore';
   import { browser } from '$app/environment';
+  import { authStore } from './stores/authStore';
+  import { activityTracker, ACTIVITY_TYPES } from './activityTracker';
 
   let profiles: Profile[] = [];
   let showForm = false;
   let editingProfile: Profile | null = null;
+  let currentUser: any = null;
   let newProfile: Omit<Profile, 'id'> = {
     name: '',
     description: '',
@@ -15,6 +18,11 @@
   };
 
   let descriptionTimeout: number;
+
+  // Subscribe to auth state to get current user
+  authStore.subscribe(state => {
+    currentUser = state.user;
+  });
 
   onMount(async () => {
     try {
@@ -43,6 +51,11 @@
       console.log('Created profile response:', created);
       
       if (created) {
+        // Track successful profile creation
+        if (currentUser) {
+          await activityTracker.trackProfileCreated(currentUser, created.id);
+        }
+        
         // Ensure profiles is an array before spreading
         if (!Array.isArray(profiles)) {
           console.warn('profiles is not an array, resetting to empty array:', profiles);
@@ -53,17 +66,40 @@
         resetForm();
       } else {
         console.error('Failed to create profile: No data returned');
+        // Track failure
+        if (currentUser) {
+          await activityTracker.trackError(currentUser, ACTIVITY_TYPES.PROFILE_CREATED, 'No data returned from API');
+        }
       }
     } catch (error) {
       console.error('Error creating profile:', error);
+      // Track error
+      if (currentUser) {
+        await activityTracker.trackError(currentUser, ACTIVITY_TYPES.PROFILE_CREATED, `Profile creation error: ${error}`);
+      }
     }
   }
 
   async function updateProfile() {
     if (!editingProfile) return;
-    const updated = await api.updateProfile(editingProfile.id, newProfile);
-    profiles = profiles.map(p => p.id === updated.id ? updated : p);
-    resetForm();
+    
+    try {
+      const updated = await api.updateProfile(editingProfile.id, newProfile);
+      
+      // Track successful profile update
+      if (currentUser) {
+        await activityTracker.trackProfileUpdated(currentUser, updated.id);
+      }
+      
+      profiles = profiles.map(p => p.id === updated.id ? updated : p);
+      resetForm();
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      // Track error
+      if (currentUser) {
+        await activityTracker.trackError(currentUser, ACTIVITY_TYPES.PROFILE_UPDATED, `Profile update error: ${error}`);
+      }
+    }
   }
 
   async function deleteProfile(profile: Profile) {

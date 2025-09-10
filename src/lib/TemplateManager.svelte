@@ -5,6 +5,8 @@
 
 	import { selectedProfile } from './stores/profileStore';
 	import type { Profile } from '$lib/api';
+	import { authStore } from './stores/authStore';
+	import { activityTracker, ACTIVITY_TYPES } from './activityTracker';
 
 	let templates: PromptTemplate[] = [];
 	let personas: Persona[] = [];
@@ -21,9 +23,15 @@
 
 	let calculatedTemplate = '';
 	let currentProfile: Profile | null = null;
+	let currentUser: any = null;
 
 	selectedProfile.subscribe(value => {
 		currentProfile = value;
+	});
+
+	// Subscribe to auth state to get current user
+	authStore.subscribe(state => {
+		currentUser = state.user;
 	});
 
 	$: {
@@ -123,6 +131,11 @@ ${newTemplate.answer_guideline}`);
 			console.log('Created template response:', created);
 			
 			if (created) {
+				// Track successful template creation
+				if (currentUser) {
+					await activityTracker.trackTemplateCreated(currentUser, created.id, currentProfile?.id);
+				}
+				
 				// Ensure templates is an array before spreading
 				if (!Array.isArray(templates)) {
 					console.warn('templates is not an array, resetting to empty array:', templates);
@@ -134,46 +147,68 @@ ${newTemplate.answer_guideline}`);
 				resetForm();
 			} else {
 				console.error('Failed to create template: No data returned');
+				// Track failure
+				if (currentUser) {
+					await activityTracker.trackError(currentUser, ACTIVITY_TYPES.TEMPLATE_CREATED, 'No data returned from API');
+				}
 			}
 		} catch (error) {
 			console.error('Error creating template:', error);
+			// Track error
+			if (currentUser) {
+				await activityTracker.trackError(currentUser, ACTIVITY_TYPES.TEMPLATE_CREATED, `Template creation error: ${error}`);
+			}
 		}
 	}
 
 	async function updateTemplate() {
 		if (!editingTemplate) return;
-		const variables = newTemplate.variables.filter(v => v.trim());
 		
-		// Validate that {{query}} variable is required
-		if (!variables.includes('query')) {
-			alert('Templates must include a {{query}} variable. Please add "query" to the variables list.');
-			return;
+		try {
+			const variables = newTemplate.variables.filter(v => v.trim());
+			
+			// Validate that {{query}} variable is required
+			if (!variables.includes('query')) {
+				alert('Templates must include a {{query}} variable. Please add "query" to the variables list.');
+				return;
+			}
+			
+			let updated;
+			if (creatingVersion) {
+				// Create new version
+				updated = await api.createTemplateVersion(editingTemplate.id, {
+					persona_id: newTemplate.persona_id,
+					task: newTemplate.task,
+					answer_guideline: newTemplate.answer_guideline,
+					variables
+				});
+				templates = [...templates, updated];
+			} else {
+				// Update existing template
+				updated = await api.updateTemplate(editingTemplate.id, {
+					name: newTemplate.name,
+					persona_id: newTemplate.persona_id,
+					version: editingTemplate.version,
+					task: newTemplate.task,
+					answer_guideline: newTemplate.answer_guideline,
+					variables
+				});
+				templates = templates.map(t => t.id === updated.id && t.version === updated.version ? updated : t);
+			}
+			
+			// Track successful template update
+			if (currentUser && updated) {
+				await activityTracker.trackTemplateUpdated(currentUser, updated.id, currentProfile?.id);
+			}
+			
+			resetForm();
+		} catch (error) {
+			console.error('Error updating template:', error);
+			// Track error
+			if (currentUser) {
+				await activityTracker.trackError(currentUser, ACTIVITY_TYPES.TEMPLATE_UPDATED, `Template update error: ${error}`);
+			}
 		}
-		
-		let updated;
-		if (creatingVersion) {
-			// Create new version
-			updated = await api.createTemplateVersion(editingTemplate.id, {
-				persona_id: newTemplate.persona_id,
-				task: newTemplate.task,
-				answer_guideline: newTemplate.answer_guideline,
-				variables
-			});
-			templates = [...templates, updated];
-		} else {
-			// Update existing template
-			updated = await api.updateTemplate(editingTemplate.id, {
-				name: newTemplate.name,
-				persona_id: newTemplate.persona_id,
-				version: editingTemplate.version,
-				task: newTemplate.task,
-				answer_guideline: newTemplate.answer_guideline,
-				variables
-			});
-			templates = templates.map(t => t.id === updated.id && t.version === updated.version ? updated : t);
-		}
-		
-		resetForm();
 	}
 
 	async function deleteTemplate(template: PromptTemplate) {

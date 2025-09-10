@@ -5,6 +5,8 @@
 	import { selectedProfile } from './stores/profileStore';
 	import { dispatchEvent } from './stores/eventBus';
 	import type { Profile } from '$lib/api';
+	import { authStore } from './stores/authStore';
+	import { activityTracker, ACTIVITY_TYPES } from './activityTracker';
 
 	let personas: Persona[] = [];
 	let showForm = false;
@@ -17,9 +19,15 @@
 	let showUserRoleFields = false;
 	let showLLMRoleFields = false;
 	let currentProfile: Profile | null = null;
+	let currentUser: any = null;
 
 	selectedProfile.subscribe(value => {
 		currentProfile = value;
+	});
+
+	// Subscribe to auth state to get current user
+	authStore.subscribe(state => {
+		currentUser = state.user;
 	});
 
 	$: {
@@ -75,6 +83,11 @@
 			console.log('Created persona response:', created);
 			
 			if (created) {
+				// Track successful persona creation
+				if (currentUser) {
+					await activityTracker.trackPersonaCreated(currentUser, created.persona_id, currentProfile.id);
+				}
+				
 				// Ensure personas is an array before spreading
 				if (!Array.isArray(personas)) {
 					console.warn('personas is not an array, resetting to empty array:', personas);
@@ -86,17 +99,40 @@
 				resetForm();
 			} else {
 				console.error('Failed to create persona: No data returned');
+				// Track failure
+				if (currentUser) {
+					await activityTracker.trackError(currentUser, ACTIVITY_TYPES.PERSONA_CREATED, 'No data returned from API');
+				}
 			}
 		} catch (error) {
 			console.error('Error creating persona:', error);
+			// Track error
+			if (currentUser) {
+				await activityTracker.trackError(currentUser, ACTIVITY_TYPES.PERSONA_CREATED, `Persona creation error: ${error}`);
+			}
 		}
 	}
 
 	async function updatePersona() {
 		if (!editingPersona) return;
-		const updated = await api.updatePersona(editingPersona.persona_id, newPersona);
-		personas = personas.map(p => p.persona_id === updated.persona_id ? updated : p);
-		resetForm();
+		
+		try {
+			const updated = await api.updatePersona(editingPersona.persona_id, newPersona);
+			
+			// Track successful persona update
+			if (currentUser) {
+				await activityTracker.trackPersonaUpdated(currentUser, updated.persona_id, currentProfile?.id);
+			}
+			
+			personas = personas.map(p => p.persona_id === updated.persona_id ? updated : p);
+			resetForm();
+		} catch (error) {
+			console.error('Error updating persona:', error);
+			// Track error
+			if (currentUser) {
+				await activityTracker.trackError(currentUser, ACTIVITY_TYPES.PERSONA_UPDATED, `Persona update error: ${error}`);
+			}
+		}
 	}
 
 	async function deletePersona(persona: Persona) {
