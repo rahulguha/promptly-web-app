@@ -121,28 +121,22 @@
 
 	async function loadData(profileId: string) {
 		try {
-			const [templatesData, personasData, promptsData] = await Promise.all([
-				api.getTemplates(profileId),
-				api.getPersonas(profileId),
-				api.getPrompts(profileId)
+			console.log('Loading data for profile:', profileId);
+			// Load prompts, templates (for creation), personas, and intents in parallel
+			const [promptsData, templatesData, personasData] = await Promise.all([
+				api.getPrompts(profileId),
+				api.getTemplates(profileId), 
+				api.getPersonas(profileId)
 			]);
-			templates = templatesData;
-			personas = personasData;
-			generatedPrompts = promptsData;
-			
-			// Debug: Check for template mismatches
-			console.log('Loaded templates:', templates.map(t => `${t.id}:${t.version} (${t.name})`));
-			console.log('Loaded prompts:', promptsData.map(p => `${p.name} -> template ${p.template_id}:${p.template_version}`));
-			
-			// Check for orphaned prompts
-			const orphanedPrompts = promptsData.filter(prompt => 
-				!templates.find(t => t.id === prompt.template_id && t.version === prompt.template_version)
-			);
-			if (orphanedPrompts.length > 0) {
-				console.warn('Found prompts with missing templates:', orphanedPrompts.map(p => `${p.name} -> ${p.template_id}:${p.template_version}`));
-			}
+			console.log('Loaded prompts:', promptsData);
+			generatedPrompts = promptsData ?? [];
+			templates = templatesData ?? [];
+			personas = personasData ?? [];
 		} catch (error) {
 			console.error('Failed to load data:', error);
+			generatedPrompts = [];
+			templates = [];
+			personas = [];
 		}
 	}
 
@@ -235,44 +229,15 @@
 	}
 
 	function getTemplateDisplay(templateId: string, templateVersion?: number) {
-		const template = templates.find(t => t.id === templateId && (templateVersion ? t.version === templateVersion : true));
-		if (!template) {
-			console.warn('Template not found:', templateId, 'version:', templateVersion, 'Available templates:', templates.map(t => `${t.id}:${t.version}`));
-			// Show a more user-friendly message for missing templates
-			const shortId = templateId.substring(0, 8);
-			return `Template ${shortId}${templateVersion ? ` v${templateVersion}` : ''} (unavailable)`;
-		}
-		
-		// Try to show template name if available
-		if (template.name) {
-			return `${template.name} (v${template.version})`;
-		}
-		
-		// Fallback to persona display
-		const personaDisplay = getPersonaDisplay(template.persona_id);
-		return `${personaDisplay} (v${template.version})`;
+		// Since we don't load templates in this component, just show ID and version
+		const shortId = templateId.substring(0, 8);
+		return `Template ${shortId}${templateVersion ? ` v${templateVersion}` : ''}`;
 	}
 
 	function showTemplateDetails(templateId: string, templateVersion: number) {
-		const template = templates.find(t => t.id === templateId && t.version === templateVersion);
-		if (!template) {
-			alert('Template not found');
-			return;
-		}
-		
-		const persona = personas.find(p => p.persona_id === template.persona_id);
-		const personaDisplay = persona ? `${persona.user_role_display} → ${persona.llm_role_display}` : 'Unknown Persona';
-		
-		const details = `Template Details:
-		
-Persona: ${personaDisplay}
-Version: ${template.version}
-Variables: ${template.variables.join(', ')}
-
-Template Content:
-${template.template}`;
-		
-		alert(details);
+		// Template details not available since we don't load templates in this component
+		// User should go to Templates tab to view template details
+		alert(`Template ID: ${templateId}\nVersion: ${templateVersion}\n\nTo view full template details, please go to the Templates tab.`);
 	}
 	
 	$: templateOptions = templates ? templates.map(template => {
@@ -288,7 +253,8 @@ ${template.template}`;
 
 	$: intentOptions = intents.map(intentItem => ({
 		value: intentItem.intent,  // Use 'intent' field as the ID
-		label: intentItem.name
+		display: intentItem.name,
+		meta: intentItem.description.slice(0, 60) + '...'
 	}));
 
 	$: filterOptions = [
