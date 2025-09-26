@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { api, type PromptTemplate, type Prompt, type Persona, type Intent } from './api.js';
+	import { api, type PromptTemplate, type Prompt, type Persona, type Intent, type PromptEvaluationResponse } from './api.js';
 	import { onMount } from 'svelte';
 	import RichDropdown from './RichDropdown.svelte';
 
@@ -30,20 +30,22 @@
 	// let userQuery = '';
 	// let selectedLLM = '';
 	// let selectedPrompt: Prompt | null = null;
-	let showSystemPrompt = false;
 	let expandedPrompts: Set<string> = new Set();
-	let showPromptPreviewModal = false;
-	let previewPromptContent = '';
-	let previewPromptName = '';
-	let previewTemplateId = '';
-	let previewVariables: Record<string, string> = {};
+	let evaluationResults: PromptEvaluationResponse | null = null;
+	let isEvaluating = false;
+	let generatedPromptContent = '';
 
-	function generateSystemPrompt(profile: Profile, intentId?: string): string {
+	function generateSystemPrompt(profile: Profile, intentId?: string, template?: PromptTemplate): string {
 		const attrs = profile.attributes;
 		let systemPrompt = `[System Prompt]\nUser Profile: ${profile.name}`;
-		
+
 		if (profile.description) {
 			systemPrompt += `\nDescription: ${profile.description}`;
+		}
+
+		// Add Meta Role if template is provided
+		if (template && template.meta_role) {
+			systemPrompt += `\nMeta Role: ${template.meta_role}`;
 		}
 		
 		// Demographics
@@ -89,6 +91,19 @@
 			return [...new Set(matches.map(match => match.substring(2, match.length - 2).trim()))];
 		}
 		return [];
+	}
+
+	function cleanTemplateContent(templateContent: string): string {
+		// Remove [Meta Role] section from template content to avoid duplication
+		// This handles existing templates that still have MetaRole in their content
+		let cleanedContent = templateContent.replace(/\[Meta Role\][\s\S]*?(?=\n\[|\n\n\[|$)/g, '').trim();
+
+		// Add [User Section] header before the content
+		if (cleanedContent) {
+			cleanedContent = `[User Section]\n${cleanedContent}`;
+		}
+
+		return cleanedContent;
 	}
 
 	selectedProfile.subscribe(value => {
@@ -195,15 +210,6 @@
 		}
 	}
 
-	// Reactive statement to update template preview with variable substitutions
-	$: previewContent = selectedTemplate ? (() => {
-		let content = selectedTemplate.template;
-		for (const [variable, value] of Object.entries(variables)) {
-			const placeholder = `{{${variable}}}`;
-			content = content.replaceAll(placeholder, value || `{{${variable}}}`);
-		}
-		return content;
-	})() : '';
 
 	async function generatePrompt(e: Event) {
 		e.preventDefault();
@@ -226,10 +232,10 @@
 				if (!template) return;
 				
 				// Generate system prompt from profile
-				const systemPrompt = generateSystemPrompt(currentProfile, selectedIntentId);
+				const systemPrompt = generateSystemPrompt(currentProfile, selectedIntentId, template);
 				
-				// Generate content with updated variables
-				let content = template.template;
+				// Generate content with updated variables, clean MetaRole and add User Section header
+				let content = cleanTemplateContent(template.template);
 				for (const [variable, value] of Object.entries(variables)) {
 					const placeholder = `{{${variable}}}`;
 					content = content.replaceAll(placeholder, value || '');
@@ -238,12 +244,9 @@
 				// Combine system prompt with content
 				const fullContent = systemPrompt + '\n' + content;
 
-				// Show preview modal instead of directly saving
-				previewPromptContent = fullContent;
-				previewPromptName = promptName;
-				previewTemplateId = templateId;
-				previewVariables = { ...variables };
-				showPromptPreviewModal = true;
+				// Show results inline instead of modal
+				generatedPromptContent = fullContent;
+				evaluationResults = null; // Clear previous evaluation results
 			}
 		} catch (error) {
 			console.error('Error generating prompt:', error);
@@ -361,10 +364,10 @@
 		if (!template) return;
 
 		// Generate system prompt from profile
-		const systemPrompt = generateSystemPrompt(currentProfile, selectedIntentId);
+		const systemPrompt = generateSystemPrompt(currentProfile, selectedIntentId, template);
 		
-		// Generate new content with updated variables
-		let content = template.template;
+		// Generate new content with updated variables, clean MetaRole and add User Section header
+		let content = cleanTemplateContent(template.template);
 		for (const [variable, value] of Object.entries(variables)) {
 			const placeholder = `{{${variable}}}`;
 			content = content.replaceAll(placeholder, value || '');
@@ -391,6 +394,8 @@
 		variables = {};
 		selectedTemplateId = '';
 		promptName = '';
+		generatedPromptContent = '';
+		evaluationResults = null;
 	}
 
 	async function copyToClipboard(text: string) {
@@ -484,57 +489,73 @@
 		expandedPrompts = expandedPrompts; // Trigger reactivity
 	}
 
-	function closePromptPreviewModal() {
-		showPromptPreviewModal = false;
-		previewPromptContent = '';
-		previewPromptName = '';
-		previewTemplateId = '';
-		previewVariables = {};
+
+	async function evaluatePrompt() {
+		if (!generatedPromptContent.trim()) return;
+
+		try {
+			isEvaluating = true;
+			evaluationResults = null; // Clear previous results
+
+			const response = await api.evaluatePrompt({
+				prompt: generatedPromptContent
+			});
+
+			evaluationResults = response;
+			console.log('Evaluation results:', evaluationResults);
+
+		} catch (error) {
+			console.error('Error evaluating prompt:', error);
+			alert('Failed to evaluate prompt. Please try again.');
+		} finally {
+			isEvaluating = false;
+		}
 	}
 
-	async function savePromptFromPreview() {
-		if (!currentProfile || !previewPromptName || !previewPromptContent) return;
-		
+	async function saveGeneratedPrompt() {
+		if (!currentProfile || !promptName || !generatedPromptContent) return;
+
 		// Additional check to ensure query was populated (check if {{query}} still exists in content)
-		if (previewPromptContent.includes('{{query}}')) {
+		if (generatedPromptContent.includes('{{query}}')) {
 			alert('Cannot save prompt: {{query}} variable was not filled. Please go back and fill the query field.');
 			return;
 		}
-		
+
 		try {
 			console.log('Saving prompt with data:', {
-				name: previewPromptName,
-				templateId: previewTemplateId,
-				variables: previewVariables,
-				contentLength: previewPromptContent.length
+				name: promptName,
+				contentLength: generatedPromptContent.length
 			});
-			
+
 			// Send name, content, and template info to backend for proper association
 			const prompt = await api.generatePrompt(
-				previewPromptName, 
-				previewPromptContent,  // This is the complete prompt content from the modal
-				previewTemplateId,
-				previewVariables,
-				currentProfile.id  // Add profile_id as required by new API
+				promptName,
+				generatedPromptContent,
+				selectedTemplateId,
+				variables,
+				currentProfile.id
 			);
-			
+
 			console.log('Received saved prompt from API:', prompt);
-			
+
 			if (prompt) {
 				// Track successful prompt creation
 				if (currentUser) {
 					await activityTracker.trackPromptCreated(currentUser, prompt.id, currentProfile.id);
 				}
-				
+
 				// Reload all prompts from backend to ensure we have the latest data
 				await loadData(currentProfile.id);
-				
-				// Clear form
+
+				// Clear form and generated content
 				variables = {};
 				selectedTemplateId = '';
 				promptName = '';
 				selectedIntentId = '';
-				closePromptPreviewModal();
+				generatedPromptContent = '';
+				evaluationResults = null;
+
+				alert('Prompt saved successfully!');
 			} else {
 				console.error('Failed to save prompt: No data returned from API');
 				// Track failure
@@ -550,6 +571,7 @@
 			}
 		}
 	}
+
 </script>
 
 <div class="prompt-generator">
@@ -597,38 +619,65 @@
 					{/each}
 				</div>
 
-				<button on:click={(e) => generatePrompt(e)}>
-					{editingPrompt ? 'Update Prompt' : 'Generate Prompt'}
-				</button>
-				{#if editingPrompt}
-					<button type="button" on:click={resetEditForm}>Cancel Edit</button>
-				{/if}
-			</div>
-
-			<div class="template-preview">
-				<h4>Preview: System Prompt + Template</h4>
-				{#if currentProfile}
-					<div class="system-prompt-preview">
-						<div class="collapsible-header">
-							<button 
-								class="collapse-btn" 
-								on:click={() => showSystemPrompt = !showSystemPrompt}
-								aria-label={showSystemPrompt ? 'Collapse' : 'Expand'}
-							>
-								{showSystemPrompt ? '▼' : '▶'}
-							</button>
-							<h5>System Prompt</h5>
-						</div>
-						{#if showSystemPrompt}
-							<pre>{generateSystemPrompt(currentProfile, selectedIntentId)}</pre>
-						{/if}
-					</div>
-				{/if}
-				<div class="template-content-preview">
-					<h5>Template Content (with variables)</h5>
-					<pre>{previewContent || (editingPrompt ? 'Loading template preview...' : '')}</pre>
+				<div class="button-group">
+					<button on:click={(e) => generatePrompt(e)}>
+						{editingPrompt ? 'Update Prompt' : 'Generate Prompt'}
+					</button>
+					{#if generatedPromptContent && !editingPrompt}
+						<button
+							type="button"
+							class="evaluate-btn"
+							on:click={evaluatePrompt}
+							disabled={isEvaluating}
+						>
+							{isEvaluating ? 'Evaluating...' : 'Evaluate Prompt'}
+						</button>
+						<button
+							type="button"
+							class="save-btn"
+							on:click={saveGeneratedPrompt}
+							disabled={!promptName.trim()}
+						>
+							Save Prompt
+						</button>
+					{/if}
+					{#if editingPrompt}
+						<button type="button" on:click={resetEditForm}>Cancel Edit</button>
+					{/if}
 				</div>
 			</div>
+
+			{#if generatedPromptContent}
+				<div class="inline-prompt-display">
+					<div class="prompt-results-container">
+						<div class="generated-prompt-section">
+							<div class="section-header">
+								<h4>Generated Prompt</h4>
+							</div>
+							<textarea
+								bind:value={generatedPromptContent}
+								placeholder="Generated prompt will appear here..."
+								rows="20"
+							></textarea>
+						</div>
+
+						{#if evaluationResults}
+							<div class="suggested-prompt-section">
+								<div class="section-header">
+									<h4>Suggested Prompt</h4>
+								</div>
+								<textarea
+									value={evaluationResults.suggestedPrompt}
+									readonly
+									placeholder="Suggested prompt will appear here..."
+									rows="20"
+								></textarea>
+							</div>
+						{/if}
+					</div>
+				</div>
+			{/if}
+
 		{/if}
 	</div>
 
@@ -728,53 +777,6 @@
 	</div>
 {/if} -->
 
-<!-- Prompt Preview Modal -->
-{#if showPromptPreviewModal}
-	<div class="modal-overlay" on:click={closePromptPreviewModal}>
-		<div class="modal prompt-preview-modal" on:click|stopPropagation>
-			<div class="modal-header">
-				<h3>Review & Edit Prompt</h3>
-				<button class="close-btn" on:click={closePromptPreviewModal}>×</button>
-			</div>
-			
-			<div class="modal-body">
-				<div class="prompt-name-section">
-					<label for="preview-prompt-name">Prompt Name:</label>
-					<input 
-						id="preview-prompt-name"
-						bind:value={previewPromptName} 
-						placeholder="Enter prompt name" 
-						required 
-					/>
-				</div>
-				
-				<div class="prompt-content-section">
-					<label for="preview-prompt-content">Complete Prompt:</label>
-					<textarea
-						id="preview-prompt-content"
-						bind:value={previewPromptContent}
-						placeholder="Edit your complete prompt here..."
-						rows="20"
-					></textarea>
-				</div>
-			</div>
-			
-			<div class="modal-actions">
-				<button type="button" class="secondary" on:click={closePromptPreviewModal}>
-					Cancel
-				</button>
-				<button 
-					type="button" 
-					class="primary" 
-					on:click={savePromptFromPreview} 
-					disabled={!previewPromptName.trim() || !previewPromptContent.trim()}
-				>
-					Save Prompt
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}
 
 <style>
 	.prompt-generator {
@@ -863,60 +865,6 @@
 		border: 1px solid #e9ecef;
 	}
 
-	.template-preview {
-		background: white;
-		padding: 20px;
-		border-radius: 8px;
-		border: 1px solid #ddd;
-		margin-bottom: 20px;
-	}
-
-	.template-preview h4 {
-		margin-top: 0;
-		margin-bottom: 20px;
-		color: #2c3e50;
-		border-bottom: 2px solid #007cba;
-		padding-bottom: 10px;
-	}
-
-	.system-prompt-preview,
-	.template-content-preview {
-		margin-bottom: 20px;
-	}
-
-	.system-prompt-preview h5,
-	.template-content-preview h5 {
-		margin-bottom: 10px;
-		color: #495057;
-		font-size: 14px;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.5px;
-	}
-
-	.system-prompt-preview pre {
-		background: linear-gradient(135deg, #ebdf8f, #f4e79a);
-		border: 1px solid #d4c85a;
-		border-radius: 4px;
-		padding: 15px;
-		font-size: 12px;
-		line-height: 1.4;
-		color: #2c3e50;
-		max-height: 200px;
-		overflow-y: auto;
-	}
-
-	.template-content-preview pre {
-		background: #f8f9fa;
-		border: 1px solid #e9ecef;
-		border-radius: 4px;
-		padding: 15px;
-		font-size: 12px;
-		line-height: 1.4;
-		color: #495057;
-		max-height: 200px;
-		overflow-y: auto;
-	}
 	
 	.generator-form :global(.rich-dropdown) {
 		margin-bottom: 15px;
@@ -1072,37 +1020,6 @@
 		background: none;
 	}
 
-	.collapsible-header {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		margin-bottom: 10px;
-	}
-
-	.collapse-btn {
-		background: none;
-		border: none;
-		color: #007cba;
-		font-size: 14px;
-		cursor: pointer;
-		padding: 4px;
-		border-radius: 3px;
-		transition: all 0.2s ease;
-		min-width: 20px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.collapse-btn:hover {
-		background: #e3f2fd;
-		color: #005a87;
-		transform: scale(1.1);
-		cursor: pointer;
-		font-size: inherit;
-		font-family: inherit;
-		padding: 0;
-	}
 
 	.template-simple-link:hover {
 		color: #005a87;
@@ -1245,6 +1162,53 @@
 		background: #005a87;
 	}
 
+	.button-group {
+		display: flex;
+		gap: 10px;
+		flex-wrap: wrap;
+		align-items: center;
+	}
+
+	.evaluate-btn {
+		background: #28a745;
+		color: white;
+		border: 1px solid #28a745;
+		padding: 10px 15px;
+		border-radius: 4px;
+		cursor: pointer;
+	}
+
+	.evaluate-btn:hover {
+		background: #218838;
+		border-color: #1e7e34;
+	}
+
+	.evaluate-btn:disabled {
+		background: #6c757d;
+		border-color: #6c757d;
+		cursor: not-allowed;
+	}
+
+	.save-btn {
+		background: #17a2b8;
+		color: white;
+		border: 1px solid #17a2b8;
+		padding: 10px 15px;
+		border-radius: 4px;
+		cursor: pointer;
+	}
+
+	.save-btn:hover {
+		background: #138496;
+		border-color: #117a8b;
+	}
+
+	.save-btn:disabled {
+		background: #6c757d;
+		border-color: #6c757d;
+		cursor: not-allowed;
+	}
+
 	template-link {
 		background: none;
 		border: none;
@@ -1334,6 +1298,23 @@
 
 	.modal-actions .secondary:hover {
 		background: #f8f9fa;
+	}
+
+	.modal-actions .evaluate-btn {
+		background: #28a745;
+		color: white;
+		border-color: #28a745;
+	}
+
+	.modal-actions .evaluate-btn:hover {
+		background: #218838;
+		border-color: #1e7e34;
+	}
+
+	.modal-actions .evaluate-btn:disabled {
+		background: #6c757d;
+		border-color: #6c757d;
+		cursor: not-allowed;
 	}
 
 	/* Prompt Preview Modal Specific Styles */
@@ -1439,5 +1420,197 @@
 		outline: none;
 		border-color: #007cba;
 		box-shadow: 0 0 0 2px rgba(0, 124, 186, 0.2);
+	}
+
+	/* Evaluation Results Section */
+	.evaluation-results-section {
+		border-top: 2px solid #e9ecef;
+		padding-top: 20px;
+		margin-top: 20px;
+		display: flex;
+		flex-direction: column;
+		gap: 15px;
+	}
+
+	.evaluation-results-section h4 {
+		margin: 0 0 15px 0;
+		color: #28a745;
+		font-size: 18px;
+		font-weight: 600;
+		border-bottom: 1px solid #28a745;
+		padding-bottom: 5px;
+	}
+
+	.evaluation-grade {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+
+	.evaluation-grade label {
+		font-weight: bold;
+		color: #333;
+		font-size: 14px;
+	}
+
+	.grade-display {
+		background: linear-gradient(135deg, #d4edda, #c3e6cb);
+		border: 1px solid #28a745;
+		border-radius: 6px;
+		padding: 12px 16px;
+		font-size: 16px;
+		font-weight: 600;
+		color: #155724;
+		text-align: center;
+		min-height: 20px;
+	}
+
+	.evaluation-suggestion {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		flex: 1;
+	}
+
+	.evaluation-suggestion label {
+		font-weight: bold;
+		color: #333;
+		font-size: 14px;
+	}
+
+	.evaluation-suggestion textarea {
+		flex: 1;
+		padding: 12px;
+		border: 1px solid #ddd;
+		border-radius: 4px;
+		font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+		font-size: 13px;
+		line-height: 1.5;
+		background: #f8f9fa;
+		color: #495057;
+		resize: vertical;
+		min-height: 150px;
+	}
+
+	.evaluation-suggestion textarea:focus {
+		outline: none;
+		border-color: #28a745;
+		box-shadow: 0 0 0 2px rgba(40, 167, 69, 0.2);
+	}
+
+	/* Inline Prompt Display Styles */
+	.inline-prompt-display {
+		margin-top: 30px;
+		padding: 20px;
+		background: #f8f9fa;
+		border-radius: 8px;
+		border: 1px solid #e9ecef;
+	}
+
+	.prompt-results-container {
+		display: flex;
+		gap: 20px;
+		width: 100%;
+	}
+
+	.generated-prompt-section,
+	.suggested-prompt-section {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		background: white;
+		border-radius: 6px;
+		padding: 15px;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	}
+
+	.section-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 15px;
+		padding-bottom: 10px;
+		border-bottom: 2px solid #e9ecef;
+	}
+
+
+	.section-header h4 {
+		margin: 0;
+		color: #2c3e50;
+		font-size: 16px;
+		font-weight: 600;
+	}
+
+	.generated-prompt-section .section-header {
+		border-bottom-color: #007cba;
+	}
+
+	.suggested-prompt-section .section-header {
+		border-bottom-color: #28a745;
+	}
+
+	.generated-prompt-section h4 {
+		color: #007cba;
+	}
+
+	.suggested-prompt-section h4 {
+		color: #28a745;
+	}
+
+
+
+	.inline-prompt-display textarea {
+		flex: 1;
+		padding: 12px;
+		border: 1px solid #ddd;
+		border-radius: 4px;
+		font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+		font-size: 13px;
+		line-height: 1.5;
+		resize: vertical;
+		min-height: 300px;
+	}
+
+	.generated-prompt-section textarea {
+		background: #fff;
+		color: #2c3e50;
+	}
+
+	.generated-prompt-section textarea:focus {
+		outline: none;
+		border-color: #007cba;
+		box-shadow: 0 0 0 2px rgba(0, 124, 186, 0.2);
+	}
+
+	.suggested-prompt-section textarea {
+		background: #f8f9fa;
+		color: #495057;
+	}
+
+	.suggested-prompt-section textarea:focus {
+		outline: none;
+		border-color: #28a745;
+		box-shadow: 0 0 0 2px rgba(40, 167, 69, 0.2);
+	}
+
+	/* Responsive design */
+	@media (max-width: 1024px) {
+		.prompt-results-container {
+			flex-direction: column;
+		}
+
+		.generated-prompt-section,
+		.suggested-prompt-section {
+			flex: none;
+		}
+
+		.button-group {
+			flex-direction: column;
+			align-items: stretch;
+		}
+
+		.button-group button {
+			width: 100%;
+		}
 	}
 </style>

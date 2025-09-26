@@ -63,15 +63,13 @@
 
 	$: {
 		const selectedPersona = personas ? personas.find(p => p.persona_id === newTemplate.persona_id) : null;
-		const metaRole = selectedPersona ? `I am a ${selectedPersona.user_role_display}.\nYou are a ${selectedPersona.llm_role_display}. 
+		// const metaRole = selectedPersona ? `I am a ${selectedPersona.user_role_display}.\nYou are a ${selectedPersona.llm_role_display}. 
+		const metaRole = selectedPersona ? `You are a ${selectedPersona.llm_role_display}, assisting a ${selectedPersona.user_role_display} (the user).\n. 
 Please respond clearly, in a way that fits my background as a ${selectedPersona.user_role_display}, 
 while staying in your role as a ${selectedPersona.llm_role_display}.` : '';
 		
 		let templateParts = [];
-		if (metaRole) {
-			templateParts.push(`[Meta Role]
-${metaRole}`);
-		}
+		// MetaRole is now handled in system prompt, so we don't include it in template content
 		if (newTemplate.task) {
 			templateParts.push(`[Task]
 ${newTemplate.task}`);

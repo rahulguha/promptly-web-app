@@ -76,6 +76,16 @@ export interface TrackActivityResponse {
   message: string;
 }
 
+export interface PromptEvaluationRequest {
+  prompt: string;
+}
+
+export interface PromptEvaluationResponse {
+  inputGrade: string;
+  suggestedPrompt: string;
+  improvedGrade: string;
+}
+
 // Define a type for our API request options that allows a structured body.
 type ApiRequestOptions = Omit<RequestInit, "body"> & {
   body?: unknown;
@@ -255,6 +265,14 @@ export const api = {
   // Activity Tracking
   trackActivity(request: TrackActivityRequest): Promise<TrackActivityResponse> {
     return apiRequest("/track/activity", {
+      method: "POST",
+      body: request,
+    });
+  },
+
+  // Prompt Evaluation
+  evaluatePrompt(request: PromptEvaluationRequest): Promise<PromptEvaluationResponse> {
+    return apiRequest("/prompts/evaluate", {
       method: "POST",
       body: request,
     });
