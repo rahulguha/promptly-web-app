@@ -1,5 +1,5 @@
-import { writable } from 'svelte/store';
-import { activityTracker, ACTIVITY_TYPES } from '../activityTracker';
+import { writable } from "svelte/store";
+import { activityTracker, ACTIVITY_TYPES } from "../activityTracker";
 
 interface User {
   user_id: string;
@@ -28,7 +28,7 @@ function createAuthStore() {
 
     // Check if user is authenticated on app load
     init() {
-      const token = localStorage.getItem('jwt_token');
+      const token = localStorage.getItem("jwt_token");
       if (token) {
         // Validate token by calling /me endpoint
         this.validateToken();
@@ -39,19 +39,25 @@ function createAuthStore() {
 
     // Validate JWT token
     async validateToken() {
-      const token = localStorage.getItem('jwt_token');
+      const token = localStorage.getItem("jwt_token");
       if (!token) {
         this.logout();
         return;
       }
 
-      update(state => ({ ...state, loading: true }));
+      update((state) => ({ ...state, loading: true }));
 
       try {
-        const response = await fetch(`/v1/api/auth/me`, {
+        //const apiBase = import.meta.env.PROD
+        //  ? import.meta.env.VITE_PUBLIC_BACKEND_API_BASE_URL || "/v1"
+        //  : "/v1";
+        const apiBase =
+          import.meta.env.VITE_PUBLIC_BACKEND_API_BASE_URL || "/v1";
+
+        const response = await fetch(`${apiBase}/api/auth/me`, {
           headers: {
-            'Authorization': `Bearer ${token}`
-          }
+            Authorization: `Bearer ${token}`,
+          },
         });
 
         if (response.ok) {
@@ -62,28 +68,34 @@ function createAuthStore() {
           this.logout();
         }
       } catch (error) {
-        console.error('Token validation failed:', error);
+        console.error("Token validation failed:", error);
         this.logout();
       }
     },
 
     // Login - redirect to API login endpoint
     login() {
-      window.location.href = `${import.meta.env.VITE_PUBLIC_BACKEND_API_BASE_URL}/api/auth/login`;
+      window.location.href = `${
+        import.meta.env.VITE_PUBLIC_BACKEND_API_BASE_URL
+      }/api/auth/login`;
     },
 
     // Logout
     async logout() {
-      localStorage.removeItem('jwt_token');
+      localStorage.removeItem("jwt_token");
       set({ isAuthenticated: false, user: null, loading: false });
 
       // Optional: call logout endpoint
       try {
-        await fetch(`/v1/api/auth/logout`);
+        const apiBase = import.meta.env.PROD
+          ? import.meta.env.VITE_PUBLIC_BACKEND_API_BASE_URL || "/v1"
+          : "/v1";
+
+        await fetch(`${apiBase}/api/auth/logout`);
       } catch (error) {
-        console.log('Logout API call failed, but local logout successful');
+        console.log("Logout API call failed, but local logout successful");
       }
-    }
+    },
   };
 }
 
@@ -91,7 +103,7 @@ export const authStore = createAuthStore();
 
 function generateSQLiteFilename(user: User) {
   const filename = `${user.user_id}-${user.email}-promptly.db`;
-  console.log('Generated SQLite filename:', filename);
+  console.log("Generated SQLite filename:", filename);
   return filename;
 }
 

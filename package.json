@@ -4,11 +4,16 @@
   "private": true,
   "scripts": {
     "build": "vite build",
+    "build:prod": "NODE_ENV=production vite build",
     "dev": "vite dev --port 5175",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "node build",
+    "docker:build": "docker build -t promptly-web .",
+    "docker:run": "docker run -p 3000:3000 --env-file .env.production promptly-web"
   },
   "devDependencies": {
     "@sveltejs/adapter-auto": "^3.0.0",
+    "@sveltejs/adapter-node": "^5.3.2",
     "@sveltejs/kit": "^2.0.0",
     "@sveltejs/vite-plugin-svelte": "^6.1.2",
     "@types/node": "^24.3.0",

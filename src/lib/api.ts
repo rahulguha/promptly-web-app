@@ -1,6 +1,13 @@
 // In development, Vite's proxy will forward requests from /v1 to the API server.
-// In production, we assume the API is being served on the same host.
-const API_BASE = "/v1";
+// In production, we use the full API URL directly.
+// const API_BASE = import.meta.env.PROD
+//  ? import.meta.env.VITE_PUBLIC_BACKEND_API_BASE_URL || "/v1"
+//   : import.meta.env.VITE_PUBLIC_BACKEND_API_BASE_URL || "/v1";
+const API_BASE = import.meta.env.VITE_PUBLIC_BACKEND_API_BASE_URL || "/v1";
+
+console.log("PROD:", import.meta.env.PROD);
+console.log("ENV VAR:", import.meta.env.VITE_PUBLIC_BACKEND_API_BASE_URL);
+console.log("API_BASE:", API_BASE);
 
 export interface Persona {
   persona_id: string;
@@ -55,7 +62,7 @@ export interface Prompt {
 }
 
 export interface Intent {
-  intent: string;  // This is the ID field in the API response
+  intent: string; // This is the ID field in the API response
   name: string;
   description: string;
   system_prompt: string;
@@ -92,8 +99,8 @@ type ApiRequestOptions = Omit<RequestInit, "body"> & {
 };
 
 function getAuthHeaders() {
-  const token = localStorage.getItem('jwt_token');
-  return token ? { 'Authorization': `Bearer ${token}` } : {};
+  const token = localStorage.getItem("jwt_token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 async function apiRequest<T>(
@@ -132,11 +139,11 @@ async function apiRequest<T>(
   if (!res.ok) {
     if (res.status === 401) {
       // Token expired or invalid - redirect to login
-      localStorage.removeItem('jwt_token');
-      if (typeof window !== 'undefined') {
-        window.location.href = '/';
+      localStorage.removeItem("jwt_token");
+      if (typeof window !== "undefined") {
+        window.location.href = "/";
       }
-      throw new Error('Authentication required');
+      throw new Error("Authentication required");
     }
 
     let message = `HTTP error! status: ${res.status}`;
@@ -165,8 +172,14 @@ export const api = {
     return apiRequest(`/personas?profile_id=${profile_id}`);
   },
 
-  createPersona(persona: Omit<Persona, "persona_id">, profile_id: string): Promise<Persona> {
-    return apiRequest("/personas", { method: "POST", body: { ...persona, profile_id } });
+  createPersona(
+    persona: Omit<Persona, "persona_id">,
+    profile_id: string
+  ): Promise<Persona> {
+    return apiRequest("/personas", {
+      method: "POST",
+      body: { ...persona, profile_id },
+    });
   },
 
   updatePersona(
@@ -240,18 +253,18 @@ export const api = {
     profileId: string
   ): Promise<Prompt> {
     // Parse template ID and version
-    const [template_id, versionStr] = templateId.split(':');
+    const [template_id, versionStr] = templateId.split(":");
     const template_version = parseInt(versionStr);
-    
-    console.log('API generatePrompt called with:', {
+
+    console.log("API generatePrompt called with:", {
       name,
       templateId,
       template_id,
       template_version,
       variables,
-      profileId
+      profileId,
     });
-    
+
     return apiRequest("/generate-prompt", {
       method: "POST",
       body: {
@@ -291,7 +304,9 @@ export const api = {
   },
 
   // Prompt Evaluation
-  evaluatePrompt(request: PromptEvaluationRequest): Promise<PromptEvaluationResponse> {
+  evaluatePrompt(
+    request: PromptEvaluationRequest
+  ): Promise<PromptEvaluationResponse> {
     return apiRequest("/prompts/evaluate", {
       method: "POST",
       body: request,

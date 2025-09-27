@@ -1,0 +1,13 @@
+version: "3.8"
+
+services:
+  promptly-web:
+    image: 617683014831.dkr.ecr.us-east-1.amazonaws.com/promptly-web:latest
+    ports:
+      - "5000:5000"
+    environment:
+      - NODE_ENV=production
+      - PORT=5000
+      - VITE_PUBLIC_BACKEND_API_BASE_URL=https://promptlocker.app/api/v1
+      - VITE_PUBLIC_FRONTEND_URL=https://promptlocker.app
+    restart: unless-stopped

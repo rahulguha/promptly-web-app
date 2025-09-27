@@ -5,14 +5,19 @@ export default defineConfig(({ mode }) => {
   // Load env file for the current mode
   const env = loadEnv(mode, process.cwd(), "");
 
-  return {
+  // In production, we don't need the proxy since we'll use the full URL
+  const config = {
     plugins: [sveltekit()],
     define: {
       "import.meta.env.PUBLIC_BACKEND_API_BASE_URL": JSON.stringify(
-        env.PUBLIC_BACKEND_API_BASE_URL
+        env.VITE_PUBLIC_BACKEND_API_BASE_URL || env.PUBLIC_BACKEND_API_BASE_URL
       ),
     },
-    server: {
+  };
+
+  // Only add proxy in development mode
+  if (mode === 'development') {
+    config.server = {
       proxy: {
         // Proxy all API requests to the backend server
         "/v1": {
@@ -20,6 +25,8 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
         },
       },
-    },
-  };
+    };
+  }
+
+  return config;
 });

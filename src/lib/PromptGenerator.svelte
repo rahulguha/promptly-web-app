@@ -513,30 +513,33 @@
 	}
 
 	async function saveGeneratedPrompt() {
-		if (!currentProfile || !promptName || !generatedPromptContent) return;
+		if (!currentProfile || !promptName || !evaluationResults?.suggestedPrompt) return;
+
+		// Use the suggested prompt from Claude evaluation
+		const suggestedPromptContent = evaluationResults.suggestedPrompt;
 
 		// Additional check to ensure query was populated (check if {{query}} still exists in content)
-		if (generatedPromptContent.includes('{{query}}')) {
+		if (suggestedPromptContent.includes('{{query}}')) {
 			alert('Cannot save prompt: {{query}} variable was not filled. Please go back and fill the query field.');
 			return;
 		}
 
 		try {
-			console.log('Saving prompt with data:', {
-				name: promptName,
-				contentLength: generatedPromptContent.length
+			console.log('Saving suggested prompt with data:', {
+				name: promptName + ' (Claude Suggested)',
+				contentLength: suggestedPromptContent.length
 			});
 
 			// Send name, content, and template info to backend for proper association
 			const prompt = await api.generatePrompt(
-				promptName,
-				generatedPromptContent,
+				promptName + ' (Claude Suggested)',
+				suggestedPromptContent,
 				selectedTemplateId,
 				variables,
 				currentProfile.id
 			);
 
-			console.log('Received saved prompt from API:', prompt);
+			console.log('Received saved suggested prompt from API:', prompt);
 
 			if (prompt) {
 				// Track successful prompt creation
@@ -547,7 +550,7 @@
 				// Reload all prompts from backend to ensure we have the latest data
 				await loadData(currentProfile.id);
 
-				// Clear form and generated content
+				// Reset form to initial state
 				variables = {};
 				selectedTemplateId = '';
 				promptName = '';
@@ -555,19 +558,19 @@
 				generatedPromptContent = '';
 				evaluationResults = null;
 
-				alert('Prompt saved successfully!');
+				alert('Claude suggested prompt saved successfully!');
 			} else {
-				console.error('Failed to save prompt: No data returned from API');
+				console.error('Failed to save suggested prompt: No data returned from API');
 				// Track failure
 				if (currentUser) {
 					await activityTracker.trackError(currentUser, ACTIVITY_TYPES.PROMPT_CREATED, 'No data returned from API');
 				}
 			}
 		} catch (error) {
-			console.error('Error saving prompt:', error);
+			console.error('Error saving suggested prompt:', error);
 			// Track error
 			if (currentUser) {
-				await activityTracker.trackError(currentUser, ACTIVITY_TYPES.PROMPT_CREATED, `Prompt creation error: ${error}`);
+				await activityTracker.trackError(currentUser, ACTIVITY_TYPES.PROMPT_CREATED, `Suggested prompt creation error: ${error}`);
 			}
 		}
 	}
@@ -621,7 +624,7 @@
 
 				<div class="button-group">
 					<button on:click={(e) => generatePrompt(e)}>
-						{editingPrompt ? 'Update Prompt' : 'Generate Prompt'}
+						{editingPrompt ? 'Update Prompt' : 'Create Prompt'}
 					</button>
 					{#if generatedPromptContent && !editingPrompt}
 						<button
@@ -630,15 +633,15 @@
 							on:click={evaluatePrompt}
 							disabled={isEvaluating}
 						>
-							{isEvaluating ? 'Evaluating...' : 'Evaluate Prompt'}
+							{isEvaluating ? 'Evaluating...' : 'Ask Claude'}
 						</button>
 						<button
 							type="button"
 							class="save-btn"
 							on:click={saveGeneratedPrompt}
-							disabled={!promptName.trim()}
+							disabled={!promptName.trim() || !evaluationResults?.suggestedPrompt}
 						>
-							Save Prompt
+							Save Generated Prompt
 						</button>
 					{/if}
 					{#if editingPrompt}
