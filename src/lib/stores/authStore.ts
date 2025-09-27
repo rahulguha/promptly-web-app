@@ -20,9 +20,74 @@ const initialState: AuthState = {
   loading: true, // Start as true to indicate we are checking auth status
 };
 
-export const authStore = writable<AuthState>(initialState);
+function createAuthStore() {
+  const { subscribe, set, update } = writable<AuthState>(initialState);
 
-const API_BASE = "/v1/api/auth";
+  return {
+    subscribe,
+
+    // Check if user is authenticated on app load
+    init() {
+      const token = localStorage.getItem('jwt_token');
+      if (token) {
+        // Validate token by calling /me endpoint
+        this.validateToken();
+      } else {
+        set({ isAuthenticated: false, user: null, loading: false });
+      }
+    },
+
+    // Validate JWT token
+    async validateToken() {
+      const token = localStorage.getItem('jwt_token');
+      if (!token) {
+        this.logout();
+        return;
+      }
+
+      update(state => ({ ...state, loading: true }));
+
+      try {
+        const response = await fetch(`/v1/api/auth/me`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        if (response.ok) {
+          const user = await response.json();
+          generateSQLiteFilename(user);
+          set({ isAuthenticated: true, user, loading: false });
+        } else {
+          this.logout();
+        }
+      } catch (error) {
+        console.error('Token validation failed:', error);
+        this.logout();
+      }
+    },
+
+    // Login - redirect to API login endpoint
+    login() {
+      window.location.href = `${import.meta.env.VITE_PUBLIC_BACKEND_API_BASE_URL}/api/auth/login`;
+    },
+
+    // Logout
+    async logout() {
+      localStorage.removeItem('jwt_token');
+      set({ isAuthenticated: false, user: null, loading: false });
+
+      // Optional: call logout endpoint
+      try {
+        await fetch(`/v1/api/auth/logout`);
+      } catch (error) {
+        console.log('Logout API call failed, but local logout successful');
+      }
+    }
+  };
+}
+
+export const authStore = createAuthStore();
 
 function generateSQLiteFilename(user: User) {
   const filename = `${user.user_id}-${user.email}-promptly.db`;
@@ -30,55 +95,11 @@ function generateSQLiteFilename(user: User) {
   return filename;
 }
 
-// Function to check authentication status (e.g., call /auth/me endpoint)
+// Legacy function for backwards compatibility
 export async function checkAuthStatus() {
-  authStore.update(state => ({ ...state, loading: true }));
-  try {
-    const response = await fetch(`${API_BASE}/me`, { credentials: 'include' });
-    if (response.ok) {
-      const user = await response.json();
-      generateSQLiteFilename(user); // Generate and log the filename
-      authStore.set({ isAuthenticated: true, user, loading: false });
-    } else {
-      authStore.set({ isAuthenticated: false, user: null, loading: false });
-    }
-  } catch (error) {
-    console.error('Error checking auth status:', error);
-    authStore.set({ isAuthenticated: false, user: null, loading: false });
-  }
+  authStore.validateToken();
 }
 
 export async function logoutUser() {
-  // Get current user for activity tracking before logout
-  let currentUser: User | null = null;
-  const unsubscribe = authStore.subscribe(state => {
-    currentUser = state.user;
-  });
-  unsubscribe(); // Immediately unsubscribe after getting current state
-  
-  authStore.update(state => ({ ...state, loading: true }));
-  
-  try {
-    const response = await fetch(`${API_BASE}/logout`, { credentials: 'include' });
-    if (response.ok) {
-      // Track logout activity before clearing user state
-      if (currentUser) {
-        await activityTracker.trackLogout(currentUser);
-      }
-      
-      authStore.set({ isAuthenticated: false, user: null, loading: false });
-    } else {
-      console.error('Logout failed');
-      // Still track the logout attempt even if API call failed
-      if (currentUser) {
-        await activityTracker.trackError(currentUser, ACTIVITY_TYPES.LOGOUT, 'API logout failed');
-      }
-    }
-  } catch (error) {
-    console.error('Error during logout:', error);
-    // Track logout error
-    if (currentUser) {
-      await activityTracker.trackError(currentUser, ACTIVITY_TYPES.LOGOUT, `Logout error: ${error}`);
-    }
-  }
+  authStore.logout();
 }

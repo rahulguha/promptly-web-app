@@ -34,7 +34,7 @@
 	});
 
 	onMount(() => {
-		checkAuthStatus();
+		authStore.init();
 	});
 
 	// Watch for authentication changes and load profiles
@@ -70,12 +70,11 @@
 	}
 
 	async function handleSignIn() {
-		// Redirect to the backend's Google login endpoint
-		window.location.href = `${import.meta.env.VITE_PUBLIC_BACKEND_API_BASE_URL}/api/auth/login`;
+		authStore.login();
 	}
 
 	async function handleSignOut() {
-		await logoutUser();
+		authStore.logout();
 		goto('/'); // Redirect to home after logout
 	}
 

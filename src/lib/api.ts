@@ -91,12 +91,23 @@ type ApiRequestOptions = Omit<RequestInit, "body"> & {
   body?: unknown;
 };
 
+function getAuthHeaders() {
+  const token = localStorage.getItem('jwt_token');
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+}
+
 async function apiRequest<T>(
   endpoint: string,
   options: ApiRequestOptions = {}
 ): Promise<T> {
   const headers = new Headers(options.headers);
   headers.set("Accept", "application/json");
+
+  // Add JWT token to all requests
+  const authHeaders = getAuthHeaders();
+  Object.entries(authHeaders).forEach(([key, value]) => {
+    headers.set(key, value);
+  });
 
   const fetchOptions: RequestInit = {
     method: options.method,
@@ -119,6 +130,15 @@ async function apiRequest<T>(
   const res = await fetch(`${API_BASE}${endpoint}`, fetchOptions);
 
   if (!res.ok) {
+    if (res.status === 401) {
+      // Token expired or invalid - redirect to login
+      localStorage.removeItem('jwt_token');
+      if (typeof window !== 'undefined') {
+        window.location.href = '/';
+      }
+      throw new Error('Authentication required');
+    }
+
     let message = `HTTP error! status: ${res.status}`;
     try {
       const body = await res.json();
