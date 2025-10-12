@@ -1,0 +1,325 @@
+/* Shared styles for prompt-related components */
+
+/* Button Styles */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  border: none;
+  border-radius: 8px;
+  font-size: var(--font-sm);
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.btn-primary {
+  background: transparent !important;
+  background-color: transparent !important;
+  color: var(--color-text);
+  border: 2px solid var(--color-primary);
+  box-shadow: none;
+}
+
+.btn-primary:hover {
+  background: rgba(0, 124, 186, 0.05) !important;
+  background-color: rgba(0, 124, 186, 0.05) !important;
+  border-color: var(--color-primary-dark);
+  color: var(--color-text);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.btn-icon {
+  padding: var(--space-xs);
+  background: transparent !important;
+  background-color: transparent !important;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.btn-icon:hover {
+  background: transparent !important;
+  background-color: transparent !important;
+  color: var(--color-text);
+  border-color: var(--color-primary);
+}
+
+.copy-btn.copied {
+  background: transparent !important;
+  background-color: transparent !important;
+  color: var(--color-success);
+  border-color: var(--color-success);
+}
+
+.delete-btn:hover {
+  background: transparent !important;
+  background-color: transparent !important;
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+/* LLM Icon Styles */
+.llm-icons {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.btn-llm {
+  padding: var(--space-xs);
+  background: transparent !important;
+  background-color: transparent !important;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-size: var(--font-md);
+  cursor: pointer;
+  transition: all 0.2s;
+  opacity: 0.7;
+  box-shadow: none;
+}
+
+.btn-llm:hover {
+  opacity: 1;
+  transform: scale(1.1);
+  border-color: var(--color-primary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+.btn-llm.executing {
+  opacity: 1;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.chatgpt-icon:hover {
+  border-color: #10a37f;
+}
+
+.claude-icon:hover {
+  border-color: #cc5d2c;
+}
+
+.gemini-icon:hover {
+  border-color: #4285f4;
+}
+
+.perplexity-icon:hover {
+  border-color: #20c997;
+}
+
+.divider {
+  width: 1px;
+  height: 24px;
+  background: var(--color-border);
+  margin: 0 var(--space-xs);
+}
+
+/* Card Styles */
+.prompt-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: all 0.2s;
+}
+
+.prompt-card:hover {
+  border-color: var(--color-primary);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-background);
+}
+
+.prompt-name {
+  margin: 0;
+  font-size: var(--font-lg);
+  font-weight: 600;
+  color: var(--color-text);
+  flex: 1;
+  min-width: 0;
+}
+
+.card-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-left: var(--space-sm);
+}
+
+.card-meta {
+  display: flex;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-background);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-xs);
+  color: var(--color-text-muted);
+}
+
+.meta-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+/* Header Styles */
+.component-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  padding-bottom: var(--space-md);
+  border-bottom: 2px solid var(--color-border);
+}
+
+.header-content .component-title {
+  margin: 0 0 var(--space-xs) 0;
+  font-size: var(--font-2xl);
+  color: var(--color-text);
+  font-weight: 700;
+}
+
+.header-content .component-description {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-md);
+}
+
+.header-actions {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+/* Empty State Styles */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-3xl);
+  text-align: center;
+  background: var(--color-surface);
+  border: 2px dashed var(--color-border);
+  border-radius: 12px;
+  gap: var(--space-md);
+}
+
+.empty-icon {
+  font-size: 4rem;
+  opacity: 0.6;
+}
+
+.empty-state h3 {
+  margin: 0;
+  font-size: var(--font-xl);
+  color: var(--color-text);
+}
+
+.empty-state p {
+  margin: 0;
+  color: var(--color-text-muted);
+  max-width: 400px;
+  line-height: 1.6;
+}
+
+/* List Layout */
+.prompts-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+/* Actions Alignment */
+.actions-right {
+  justify-content: flex-end;
+}
+
+.actions-left {
+  justify-content: flex-start;
+}
+
+.actions-between {
+  justify-content: space-between;
+}
+
+.actions-center {
+  justify-content: center;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .component-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .header-actions {
+    justify-content: flex-start;
+  }
+
+  .card-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-sm);
+  }
+
+  .card-actions {
+    margin-left: 0;
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+
+  .llm-icons {
+    flex: 1;
+    justify-content: flex-start;
+  }
+
+  .divider {
+    display: none;
+  }
+
+  .card-meta {
+    flex-direction: column;
+    gap: var(--space-xs);
+  }
+}
+
+/* Preview Textarea */
+.preview-textarea {
+  width: 100%;
+  padding: var(--space-md);
+  border: 2px solid var(--color-primary);
+  border-radius: 8px;
+  font-family: 'Courier New', monospace;
+  font-size: var(--font-sm);
+  line-height: 1.6;
+  background: var(--color-surface);
+  color: var(--color-text);
+  resize: vertical;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}

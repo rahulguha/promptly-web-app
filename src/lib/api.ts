@@ -56,9 +56,11 @@ export interface Prompt {
   name: string;
   template_id: string;
   template_version: number;
+  template_name?: string;
   variable_values: Record<string, string>;
   content: string;
   profile_id: string;
+  created_at?: string;
 }
 
 export interface Intent {
@@ -147,15 +149,28 @@ async function apiRequest<T>(
     }
 
     let message = `HTTP error! status: ${res.status}`;
+    let errorDetails = null;
     try {
       const body = await res.json();
       if (body.error) {
         message = body.error;
       }
+      if (body.message) {
+        message = body.message;
+      }
+      if (body.details) {
+        errorDetails = body.details;
+      }
+      console.error('API Error Response:', { status: res.status, url: res.url, body });
     } catch (e) {
       // Not a JSON error response, or no body
+      console.error('Could not parse error response:', e);
     }
-    throw new Error(message);
+    const error = new Error(message);
+    if (errorDetails) {
+      (error as any).details = errorDetails;
+    }
+    throw error;
   }
 
   // For DELETE requests, we don't expect a JSON body in the success response.
@@ -280,6 +295,10 @@ export const api = {
 
   getPrompts(profile_id: string): Promise<Prompt[]> {
     return apiRequest(`/prompts?profile_id=${profile_id}`);
+  },
+
+  getPrompt(id: string): Promise<Prompt> {
+    return apiRequest(`/prompts/${id}`);
   },
 
   updatePrompt(id: string, prompt: Omit<Prompt, "id">): Promise<Prompt> {
