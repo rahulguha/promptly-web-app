@@ -54,16 +54,19 @@
 			liveTemplatePreview = systemPrompt + '\n' + content;
 
 			// Scroll to the [User Section] (Task area) after preview updates
-			if (previewTextarea && browser) {
+			// Only if previewTextarea exists and is properly mounted
+			if (browser && typeof window !== 'undefined') {
 				setTimeout(() => {
-					const userSectionIndex = liveTemplatePreview.indexOf('[User Section]');
-					if (userSectionIndex !== -1) {
-						// Calculate approximate line position
-						const textBeforeUserSection = liveTemplatePreview.substring(0, userSectionIndex);
-						const linesBefore = textBeforeUserSection.split('\n').length;
-						const lineHeight = 24; // Approximate line height in pixels
-						const scrollPosition = Math.max(0, (linesBefore - 2) * lineHeight);
-						previewTextarea.scrollTop = scrollPosition;
+					if (previewTextarea) {
+						const userSectionIndex = liveTemplatePreview.indexOf('[User Section]');
+						if (userSectionIndex !== -1) {
+							// Calculate approximate line position
+							const textBeforeUserSection = liveTemplatePreview.substring(0, userSectionIndex);
+							const linesBefore = textBeforeUserSection.split('\n').length;
+							const lineHeight = 24; // Approximate line height in pixels
+							const scrollPosition = Math.max(0, (linesBefore - 2) * lineHeight);
+							previewTextarea.scrollTop = scrollPosition;
+						}
 					}
 				}, 10);
 			}
@@ -586,13 +589,15 @@
 	}
 
 	async function saveGeneratedPrompt() {
-		if (!currentProfile || !promptName || !evaluationResults?.suggestedPrompt) return;
+		if (!currentProfile || !promptName || !generatedPromptContent) {
+			return;
+		}
 
-		// Use the suggested prompt from Claude evaluation
-		const suggestedPromptContent = evaluationResults.suggestedPrompt;
+		// Use the suggested prompt if available, otherwise use the generated prompt
+		const promptContent = evaluationResults?.suggestedPrompt || generatedPromptContent;
 
 		// Additional check to ensure query was populated (check if {{query}} still exists in content)
-		if (suggestedPromptContent.includes('{{query}}')) {
+		if (promptContent.includes('{{query}}')) {
 			alert('Cannot save prompt: {{query}} variable was not filled. Please go back and fill the query field.');
 			return;
 		}
@@ -601,7 +606,7 @@
 			// Send name, content, and template info to backend for proper association
 			const prompt = await api.generatePrompt(
 				promptName,
-				suggestedPromptContent,
+				promptContent,
 				selectedTemplateId,
 				variables,
 				currentProfile.id
@@ -747,9 +752,10 @@
 									type="button"
 									class="btn btn-success"
 									on:click={saveGeneratedPrompt}
-									disabled={!promptName.trim() || !evaluationResults?.suggestedPrompt}
+									disabled={!promptName.trim() || !generatedPromptContent}
+									title={evaluationResults?.suggestedPrompt ? 'Save the LLM-improved version' : 'Save the generated prompt'}
 								>
-									Save Prompt
+									{evaluationResults?.suggestedPrompt ? 'Save Improved Prompt' : 'Save Prompt'}
 								</button>
 							{/if}
 						{/if}
@@ -1919,6 +1925,17 @@
 		color: var(--color-text) !important;
 		transform: translateY(-1px);
 		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+	}
+
+	:global(.btn-success:disabled) {
+		background: #e0e0e0 !important;
+		background-color: #e0e0e0 !important;
+		border-color: #bdbdbd !important;
+		color: #9e9e9e !important;
+		cursor: not-allowed !important;
+		opacity: 0.6;
+		transform: none !important;
+		box-shadow: none !important;
 	}
 
 	/* Collapsed Panel Styles */

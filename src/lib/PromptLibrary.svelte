@@ -37,7 +37,7 @@
 
 	// Listen for events
 	eventBus.subscribe(async (event) => {
-		if ((event.type === 'persona-created' || event.type === 'persona-updated' || event.type === 'template-created' || event.type === 'template-updated') && currentProfile) {
+		if (event && (event.type === 'persona-created' || event.type === 'persona-updated' || event.type === 'template-created' || event.type === 'template-updated') && currentProfile) {
 			await loadPrompts();
 		}
 	});
@@ -51,9 +51,10 @@
 	async function loadPrompts() {
 		if (!currentProfile) return;
 		try {
-			generatedPrompts = await api.getPrompts(currentProfile.id);
+			generatedPrompts = await api.getPrompts(currentProfile.id) || [];
 		} catch (error) {
 			console.error('Failed to load prompts:', error);
+			generatedPrompts = [];
 		}
 	}
 
@@ -254,7 +255,7 @@
 		</div> -->
 	</div>
 
-	{#if generatedPrompts.length === 0}
+	{#if !generatedPrompts || generatedPrompts.length === 0}
 		<div class="empty-state">
 			<div class="empty-icon">📝</div>
 			<h3>No Prompts Yet</h3>
