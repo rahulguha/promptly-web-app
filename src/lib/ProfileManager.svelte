@@ -6,6 +6,7 @@
   import { browser } from '$app/environment';
   import { authStore } from './stores/authStore';
   import { activityTracker, ACTIVITY_TYPES } from './activityTracker';
+  import './styles/prompt-components.css';
 
   let profiles: Profile[] = [];
   let showForm = false;
@@ -117,6 +118,12 @@
       attributes: { ...profile.attributes }
     };
     showForm = true;
+    // Scroll to form
+    if (browser) {
+      setTimeout(() => {
+        document.querySelector('.form-container')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+    }
   }
 
   function resetForm() {
@@ -382,302 +389,673 @@
 </script>
 
 <div class="profile-manager">
-  <h2>Profiles</h2>
-
-  <button on:click={() => showForm = !showForm}>
-    {showForm ? 'Cancel' : '+ New Profile'}
-  </button>
+  <div class="component-header">
+    <h2 class="component-title">👤 Profile Management
+      <button class="btn btn-primary" on:click={() => showForm = !showForm}>
+        <span class="icon">{showForm ? '✕' : '+'}</span>
+        {showForm ? 'Cancel' : 'New Profile'}
+      </button>
+    </h2>
+  </div>
 
   {#if showForm}
-    <form on:submit|preventDefault={editingProfile ? updateProfile : createProfile} class="profile-form">
-      <input bind:value={newProfile.name} placeholder="Profile Name (e.g., Student, Developer)" required />
-      
-      <div class="description-section">
-        <label for="description">Tell us about yourself</label>
-        <textarea 
-          id="description"
-          bind:value={newProfile.description} 
-          on:input={handleDescriptionChange}
-          placeholder="I am a 25-year-old student in Dallas studying Computer Science and love history." 
-          rows="4"
-          required
-        ></textarea>
-        <p class="description-hint">Best results come from writing a description.</p>
+    <div class="form-container">
+      <div class="form-header">
+        <h3 class="form-title">
+          {editingProfile ? '✏️ Edit Profile' : '✨ Create New Profile'}
+        </h3>
+        <p class="form-subtitle">
+          {editingProfile ? 'Update your profile information below' : 'Tell us about yourself to create a personalized profile'}
+        </p>
       </div>
 
-      {#if Object.keys(newProfile.attributes).length > 0}
-        <div class="extracted-fields">
-          <h3>Extracted fields</h3>
+      <form on:submit|preventDefault={editingProfile ? updateProfile : createProfile} class="profile-form">
+        <div class="form-field">
+          <label for="profile-name" class="field-label">Profile Name</label>
+          <input
+            id="profile-name"
+            class="form-input"
+            bind:value={newProfile.name}
+            placeholder="e.g., Student, Developer, Designer"
+            required
+          />
+          <p class="field-help">Choose a descriptive name for this profile</p>
+        </div>
 
-          {#if newProfile.attributes.location}
-            <div class="location-fields">
-              <div class="location-field">
-                <label for="city">City</label>
-                <input id="city" bind:value={newProfile.attributes.location.city} />
-              </div>
-              <div class="location-field">
-                <label for="state">State</label>
-                <input id="state" bind:value={newProfile.attributes.location.state} />
-              </div>
-              <div class="location-field">
-                <label for="country">Country</label>
-                <input id="country" bind:value={newProfile.attributes.location.country} />
-              </div>
+        <div class="form-field">
+          <label for="description" class="field-label">About Yourself</label>
+          <textarea
+            id="description"
+            class="form-textarea"
+            bind:value={newProfile.description}
+            on:input={handleDescriptionChange}
+            placeholder="I am a 25-year-old student in Dallas studying Computer Science. I love history and enjoy reading about technology trends."
+            rows="5"
+            required
+          ></textarea>
+          <p class="field-help">
+            🎨 <strong>AI will extract key details</strong> from your description automatically.
+            Include age, location, occupation, and interests for best results.
+          </p>
+        </div>
+
+        {#if Object.keys(newProfile.attributes).length > 0}
+          <div class="extracted-section">
+            <div class="section-header">
+              <h4 class="section-title">🤖 AI Extracted Information</h4>
+              <p class="section-subtitle">Review and edit the details we found from your description</p>
             </div>
-          {/if}
 
-          <div class="form-row">
-            {#if newProfile.attributes.gender !== undefined}
-              <div class="field-inline">
-                <label for="gender">Gender</label>
-                <select id="gender" bind:value={newProfile.attributes.gender}>
-                  <option value="male">Male</option>
-                  <option value="female">Female</option>
-                  <option value="undisclosed">Undisclosed</option>
-                </select>
+            {#if newProfile.attributes.location}
+              <div class="form-field">
+                <label class="field-label">📍 Location Information</label>
+                <div class="location-grid">
+                  <div class="location-item">
+                    <label for="city" class="location-label">City</label>
+                    <input id="city" class="form-input" bind:value={newProfile.attributes.location.city} placeholder="Enter city" />
+                  </div>
+                  <div class="location-item">
+                    <label for="state" class="location-label">State/Province</label>
+                    <input id="state" class="form-input" bind:value={newProfile.attributes.location.state} placeholder="Enter state" />
+                  </div>
+                  <div class="location-item">
+                    <label for="country" class="location-label">Country</label>
+                    <input id="country" class="form-input" bind:value={newProfile.attributes.location.country} placeholder="Enter country" />
+                  </div>
+                </div>
               </div>
             {/if}
 
-            {#if newProfile.attributes.age !== undefined}
-              <div class="field-inline">
-                <label for="age">Age</label>
-                <input id="age" type="number" bind:value={newProfile.attributes.age} />
+            <div class="form-row">
+              {#if newProfile.attributes.gender !== undefined}
+                <div class="form-field form-field-half">
+                  <label for="gender" class="field-label">👤 Gender</label>
+                  <select id="gender" class="form-select" bind:value={newProfile.attributes.gender}>
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                    <option value="undisclosed">Prefer not to say</option>
+                  </select>
+                </div>
+              {/if}
+
+              {#if newProfile.attributes.age !== undefined}
+                <div class="form-field form-field-half">
+                  <label for="age" class="field-label">🎂 Age</label>
+                  <input id="age" class="form-input" type="number" min="1" max="120" bind:value={newProfile.attributes.age} placeholder="Enter age" />
+                </div>
+              {/if}
+            </div>
+
+            {#each Object.entries(newProfile.attributes).filter(([key]) => key !== 'location' && key !== 'intent' && key !== 'gender' && key !== 'age') as [key, value]}
+              <div class="form-field">
+                <label class="field-label">
+                  {#if key === 'interests'}🎨
+                  {:else if key === 'occupation'}💼
+                  {:else if key === 'education'}🎓
+                  {:else}📄
+                  {/if}
+                  {key.replace(/_/g, ' ')}
+                </label>
+                {#if key === 'interests'}
+                  <textarea
+                    class="form-textarea"
+                    rows="3"
+                    value={Array.isArray(value) ? value.join(', ') : ''}
+                    on:change={(e) => newProfile.attributes.interests = e.currentTarget.value.split(/,|\n/).map(s => s.trim()).filter(s => s)}
+                    placeholder="e.g., Reading, Technology, History, Art"
+                  ></textarea>
+                  <p class="field-help">Separate multiple interests with commas or new lines</p>
+                {:else if key === 'gender'}
+                  <select class="form-select" bind:value={newProfile.attributes.gender}>
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                    <option value="undisclosed">Prefer not to say</option>
+                  </select>
+                {:else if typeof value === 'object' && value !== null && !Array.isArray(value)}
+                  <div class="sub-fields">
+                    {#each Object.entries(value) as [subKey, subValue]}
+                      <div class="sub-field">
+                        <label class="sub-field-label">{subKey}</label>
+                        <input class="form-input" bind:value={newProfile.attributes[key][subKey]} />
+                      </div>
+                    {/each}
+                  </div>
+                {:else}
+                  <input class="form-input" bind:value={newProfile.attributes[key]} placeholder="Enter {key.replace(/_/g, ' ')}" />
+                {/if}
+              </div>
+            {/each}
+
+            {#if newProfile.attributes.intent !== undefined}
+              <div class="form-field">
+                <label for="intent" class="field-label">🎯 Goals & Intent</label>
+                <textarea
+                  id="intent"
+                  class="form-textarea"
+                  rows="3"
+                  bind:value={newProfile.attributes.intent}
+                  placeholder="What do you want to achieve? What are your goals?"
+                ></textarea>
+                <p class="field-help">Describe your main objectives or what you hope to accomplish</p>
               </div>
             {/if}
           </div>
+        {/if}
 
-          {#each Object.entries(newProfile.attributes).filter(([key]) => key !== 'location' && key !== 'intent' && key !== 'gender' && key !== 'age') as [key, value]}
-            <div class="field">
-              <label>{key.replace(/_/g, ' ')}</label>
-              {#if key === 'interests'}
-                <div>
-                  <p/>
-                  <textarea 
-                    rows="3"
-                    value={Array.isArray(value) ? value.join(', ') : ''} 
-                    on:change={(e) => newProfile.attributes.interests = e.currentTarget.value.split(/,|\n/).map(s => s.trim()).filter(s => s)}
-                  ></textarea>
-                  <p class="field-hint">Multiple interests can be separated by a comma or a new line.</p>
-                </div>
-              {:else if key === 'gender'}
-                <select bind:value={newProfile.attributes.gender}>
-                  <option value="male">Male</option>
-                  <option value="female">Female</option>
-                  <option value="undisclosed">Undisclosed</option>
-                </select>
-              {:else if typeof value === 'object' && value !== null && !Array.isArray(value)}
-                {#each Object.entries(value) as [subKey, subValue]}
-                  <div class="sub-field">
-                    <label>{subKey}</label>
-                    <input bind:value={newProfile.attributes[key][subKey]} />
-                  </div>
-                {/each}
-              {:else}
-                <input bind:value={newProfile.attributes[key]} />
-              {/if}
-            </div>
-          {/each}
-
-          {#if newProfile.attributes.intent !== undefined}
-            <div class="field">
-              <label for="intent">Intent</label>
-              <textarea id="intent" rows="2" bind:value={newProfile.attributes.intent}></textarea>
-            </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary submit-btn">
+            <span class="btn-icon">{editingProfile ? '💾' : '✨'}</span>
+            <span class="btn-text">{editingProfile ? 'Update Profile' : 'Create Profile'}</span>
+          </button>
+          {#if editingProfile}
+            <button type="button" class="btn btn-outline cancel-btn" on:click={resetForm}>
+              <span class="btn-icon">✕</span>
+              <span class="btn-text">Cancel Edit</span>
+            </button>
           {/if}
         </div>
-      {/if}
-
-      <button type="submit">{editingProfile ? 'Update' : 'Create'} Profile</button>
-      {#if editingProfile}
-        <button type="button" on:click={resetForm}>Cancel Edit</button>
-      {/if}
-    </form>
+      </form>
+    </div>
   {/if}
 
-  <div class="profiles-list">
-    {#each profiles as profile}
-      <div class="profile-item">
-        <div class="profile-actions">
-          <button class="select-btn" on:click={() => selectProfile(profile)}>Select</button>
-          <button class="icon-btn edit-btn" on:click={() => editProfile(profile)} title="Edit">
-            ✏️
-          </button>
-          <button class="icon-btn delete-btn" on:click={() => deleteProfile(profile)} title="Delete">
-            🗑️
-          </button>
-        </div>
-        <div class="profile-display">
-          <strong>{profile.name}</strong>: {profile.description.substring(0, 100)}{profile.description.length > 100 ? '...' : ''}
-        </div>
+  <div class="profiles-section">
+    <div class="section-header">
+      <h3 class="section-title">📋 Your Profiles</h3>
+      <p class="section-subtitle">
+        {profiles.length === 0 ? 'No profiles created yet' : `${profiles.length} profile${profiles.length === 1 ? '' : 's'} available`}
+      </p>
+    </div>
+
+    {#if profiles.length === 0}
+      <div class="empty-state">
+        <div class="empty-icon">👤</div>
+        <h4>No Profiles Yet</h4>
+        <p>Create your first profile to get started with personalized AI interactions</p>
       </div>
-    {/each}
+    {:else}
+      <div class="profiles-grid">
+        {#each profiles as profile}
+          <div class="profile-card">
+            <div class="profile-header">
+              <button class="profile-name-link" on:click={() => editProfile(profile)} title="Edit this profile">
+                {profile.name}
+              </button>
+              <div class="profile-actions">
+                <button class="btn-icon" on:click={() => editProfile(profile)} title="Edit profile">
+                  ✏️
+                </button>
+                <button class="btn-icon btn-danger" on:click={() => deleteProfile(profile)} title="Delete profile">
+                  🗑️
+                </button>
+              </div>
+            </div>
+            <div class="profile-content">
+              <p class="profile-description">
+                {profile.description.length > 120 ? profile.description.substring(0, 120) + '...' : profile.description}
+              </p>
+              {#if Object.keys(profile.attributes).length > 0}
+                <div class="profile-tags">
+                  {#if profile.attributes.age}
+                    <span class="tag">Age: {profile.attributes.age}</span>
+                  {/if}
+                  {#if profile.attributes.occupation}
+                    <span class="tag">{profile.attributes.occupation}</span>
+                  {/if}
+                  {#if profile.attributes.location && profile.attributes.location.city}
+                    <span class="tag">📍 {profile.attributes.location.city}</span>
+                  {/if}
+                </div>
+              {/if}
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
   </div>
 </div>
 
 <style>
-  .profile-manager {
-    margin: 20px;
+.profile-manager {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+  width: 100%;
+}
+
+/* Form Container */
+.form-container {
+  background: var(--color-surface);
+  border-radius: 16px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
   }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.form-header {
+  padding: var(--space-xl);
+  /* background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%); */
+  color: #0a0909;
+  text-align: center;
+}
+
+@media (min-width: 768px) {
+  .form-header {
+    padding: var(--space-2xl);
+  }
+}
+
+.form-title {
+  margin: 0 0 var(--space-sm) 0;
+  font-size: var(--font-xl);
+  font-weight: 700;
+}
+
+@media (min-width: 768px) {
+  .form-title {
+    font-size: var(--font-2xl);
+  }
+}
+
+.form-subtitle {
+  margin: 0;
+  font-size: var(--font-sm);
+  opacity: 0.9;
+  line-height: 1.4;
+}
+
+@media (min-width: 768px) {
+  .form-subtitle {
+    font-size: var(--font-md);
+  }
+}
+
+/* Form Styles */
+.profile-form {
+  padding: var(--space-xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+}
+
+@media (min-width: 768px) {
   .profile-form {
-    display: flex;
-    flex-direction: column;
-    gap: 15px;
-    max-width: 600px;
-    margin: 20px 0;
-    padding: 20px;
-    border: 1px solid #eee;
-    border-radius: 8px;
-    background: #fdfdfd;
+    padding: var(--space-2xl);
   }
-  .profile-form input,
-  .profile-form textarea,
-  .profile-form select {
-    padding: 10px;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    font-size: 1rem;
-    box-sizing: border-box; /* Ensures padding doesn't add to width/height */
-  }
+}
 
-  .field textarea {
-    width: 100%;
-  }
-  .description-section {
-    display: flex;
-    flex-direction: column;
-  }
-  .description-section label {
-    font-weight: bold;
-    margin-bottom: 5px;
-  }
-  .description-hint {
-    font-size: 0.9rem;
-    color: #666;
-    margin-top: 5px;
-  }
-  .extracted-fields {
-    margin-top: 10px;
-    border-top: 1px solid #eee;
-    padding-top: 15px;
-  }
-  .extracted-fields h3 {
-    margin-bottom: 10px;
-  }
-  .field {
-    display: grid;
-    grid-template-columns: 150px 1fr;
-    gap: 10px;
-    align-items: center;
-    margin-bottom: 15px;
-  }
-  .field label {
-    text-transform: capitalize;
-    font-weight: 500;
-    padding-top: 10px;
-  }
-  .field-hint {
-    font-size: 0.8rem;
-    color: #666;
-    margin-top: 2px;
-  }
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.form-field-half {
+  flex: 1;
+}
+
+.field-label {
+  font-weight: 600;
+  font-size: var(--font-md);
+  color: var(--color-text);
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  text-transform: capitalize;
+}
+
+.field-help {
+  font-size: var(--font-sm);
+  color: var(--color-text-muted);
+  line-height: 1.4;
+  margin: 0;
+}
+
+.field-help strong {
+  color: var(--color-primary);
+}
+
+/* Form Row */
+.form-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+@media (min-width: 768px) {
   .form-row {
-    display: flex;
-    gap: 20px;
-    align-items: center; /* Align items vertically */
+    flex-direction: row;
+    gap: var(--space-xl);
   }
-  .field-inline {
-    display: flex;
-    flex-direction: column;
-    flex-grow: 1;
+}
+
+/* Location Grid */
+.location-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-md);
+}
+
+@media (min-width: 480px) {
+  .location-grid {
+    grid-template-columns: 1fr 1fr;
   }
-  .field-inline label {
-    text-transform: capitalize;
-    font-weight: 500;
-    margin-bottom: 5px;
+}
+
+@media (min-width: 768px) {
+  .location-grid {
+    grid-template-columns: 1fr 1fr 1fr;
   }
-  .location-fields {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 15px;
-    margin-bottom: 15px;
+}
+
+.location-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.location-label {
+  font-weight: 500;
+  font-size: var(--font-sm);
+  color: var(--color-text-muted);
+}
+
+/* Extracted Section */
+.extracted-section {
+  border-top: 2px solid var(--color-border);
+  padding-top: var(--space-xl);
+  margin-top: var(--space-xl);
+}
+
+.section-header {
+  margin-bottom: var(--space-lg);
+}
+
+.section-title {
+  margin: 0 0 var(--space-xs) 0;
+  font-size: var(--font-lg);
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+@media (min-width: 768px) {
+  .section-title {
+    font-size: var(--font-xl);
   }
-  .location-field {
-    display: flex;
-    flex-direction: column;
-  }
-  .location-field label {
-    margin-bottom: 5px;
-    font-weight: 500;
-    text-transform: capitalize;
-  }
+}
+
+.section-subtitle {
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+
+/* Sub Fields */
+.sub-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.sub-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+@media (min-width: 768px) {
   .sub-field {
-    display: grid;
-    grid-template-columns: 80px 1fr;
-    gap: 5px;
+    flex-direction: row;
     align-items: center;
+    gap: var(--space-md);
   }
-  .profiles-list {
-    margin-top: 20px;
-  }
-  .profile-item {
-    display: flex;
-    align-items: center;
-    gap: 15px;
-    padding: 12px 15px;
-    border-bottom: 1px solid #eee;
-    background: white;
-  }
-  .profile-item:hover {
-    background: #f8f8f8;
-  }
-  .profile-actions {
-    display: flex;
-    gap: 8px;
-  }
-  .profile-display {
-    font-size: 14px;
-    color: #333;
-  }
-  .icon-btn {
-    padding: 6px;
-    font-size: 16px;
-    border-radius: 4px;
-    background: #f8f9fa;
-    border: 1px solid #dee2e6;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
+}
+
+.sub-field-label {
+  font-weight: 500;
+  font-size: var(--font-sm);
+  color: var(--color-text-muted);
+  text-transform: capitalize;
+  min-width: 100px;
+}
+
+/* Form Actions */
+.form-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  margin-top: var(--space-xl);
+  padding-top: var(--space-xl);
+  border-top: 2px solid var(--color-border);
+}
+
+@media (min-width: 768px) {
+  .form-actions {
+    flex-direction: row;
     justify-content: center;
-    width: 32px;
-    height: 32px;
   }
-  .icon-btn:hover {
-    background: #e9ecef;
-  }
+}
 
-  .select-btn {
-    padding: 8px 12px;
-    background: #28a745;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 14px;
-  }
+.submit-btn {
+  order: 1;
+  width: 100%;
+  padding: var(--space-md) var(--space-xl);
+  font-size: var(--font-lg);
+  font-weight: 600;
+  gap: var(--space-sm);
+}
 
-  .select-btn:hover {
-    background: #218838;
+@media (min-width: 768px) {
+  .submit-btn {
+    order: 0;
+    width: auto;
+    min-width: 200px;
   }
+}
 
-  button {
-    padding: 10px 15px;
-    background: #007cba;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
+.cancel-btn {
+  order: 0;
+  width: 100%;
+}
+
+@media (min-width: 768px) {
+  .cancel-btn {
+    order: 1;
+    width: auto;
+    min-width: 140px;
   }
-  button:hover {
-    background: #005a87;
+}
+
+.btn-outline {
+  background-color: transparent;
+  color: var(--color-text-muted);
+  border: 2px solid var(--color-border);
+}
+
+.btn-outline:hover {
+  background-color: var(--color-border);
+  color: var(--color-text);
+  transform: translateY(-2px);
+}
+
+/* Profiles Section */
+.profiles-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+}
+
+/* Empty State */
+.empty-state {
+  text-align: center;
+  padding: var(--space-2xl);
+  background: var(--color-background);
+  border: 2px dashed var(--color-border);
+  border-radius: 12px;
+}
+
+.empty-icon {
+  font-size: 3rem;
+  margin-bottom: var(--space-md);
+  opacity: 0.5;
+}
+
+.empty-state h4 {
+  margin: 0 0 var(--space-sm) 0;
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.empty-state p {
+  margin: 0;
+  color: var(--color-text-light);
+  font-size: var(--font-sm);
+}
+
+/* Profiles Grid */
+.profiles-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-lg);
+}
+
+@media (min-width: 768px) {
+  .profiles-grid {
+    grid-template-columns: repeat(2, 1fr);
   }
+}
+
+@media (min-width: 1024px) {
+  .profiles-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* Profile Card */
+.profile-card {
+  background: var(--color-surface);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  transition: all 0.3s ease;
+  border: 2px solid transparent;
+}
+
+.profile-card:hover {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  transform: translateY(-2px);
+  border-color: var(--color-primary);
+}
+
+.profile-header {
+  padding: var(--space-lg);
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.profile-name-link {
+  margin: 0;
+  font-size: var(--font-lg);
+  font-weight: 600;
+  color: var(--color-primary);
+  flex: 1;
+  min-width: 0;
+  word-wrap: break-word;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+  transition: color 0.2s ease;
+}
+
+.profile-name-link:hover {
+  color: var(--color-primary-dark);
+  text-decoration: underline;
+}
+
+.profile-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+}
+
+.btn-sm {
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--font-sm);
+  min-height: 36px;
+  border-radius: 6px;
+}
+
+.btn-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: var(--space-xs);
+  background: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: var(--font-md);
+}
+
+.btn-icon:hover {
+  background: var(--color-border);
+  transform: translateY(-1px);
+}
+
+.btn-danger:hover {
+  background: #fee2e2;
+  border-color: #fecaca;
+  color: #dc2626;
+}
+
+.profile-content {
+  padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.profile-description {
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.profile-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.tag {
+  display: inline-block;
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--color-background);
+  color: var(--color-text-muted);
+  border-radius: 16px;
+  font-size: var(--font-xs);
+  border: 1px solid var(--color-border);
+}
+
 </style>

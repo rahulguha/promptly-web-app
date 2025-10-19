@@ -8,6 +8,8 @@
 	import type { Profile } from '$lib/api';
 	import { authStore } from './stores/authStore';
 	import { activityTracker, ACTIVITY_TYPES } from './activityTracker';
+	import './styles/prompt-components.css';
+	import { browser } from '$app/environment';
 
 	let templates: PromptTemplate[] = [];
 	let personas: Persona[] = [];
@@ -15,7 +17,7 @@
 	let intents: Intent[] = [];
 	let selectedTemplateId = '';
 	let selectedTemplateVersion = 1;
-	let selectedIntentId = '';
+	export let selectedIntentId = '';
 	let variables: Record<string, string> = {};
 	let promptName = '';
 	let selectedTemplate: PromptTemplate | null = null;
@@ -34,6 +36,41 @@
 	let evaluationResults: PromptEvaluationResponse | null = null;
 	let isEvaluating = false;
 	let generatedPromptContent = '';
+	let liveTemplatePreview = '';
+	let previewTextarea: HTMLTextAreaElement;
+
+	// Reactive statement to update live preview as variables change
+	$: {
+		if (selectedTemplate && currentProfile) {
+			const systemPrompt = generateSystemPrompt(currentProfile, selectedIntentId, selectedTemplate);
+			let content = cleanTemplateContent(selectedTemplate.template);
+
+			// Replace variables with their current values
+			for (const [variable, value] of Object.entries(variables)) {
+				const placeholder = `{{${variable}}}`;
+				content = content.replaceAll(placeholder, value || placeholder);
+			}
+
+			liveTemplatePreview = systemPrompt + '\n' + content;
+
+			// Scroll to the [User Section] (Task area) after preview updates
+			if (previewTextarea && browser) {
+				setTimeout(() => {
+					const userSectionIndex = liveTemplatePreview.indexOf('[User Section]');
+					if (userSectionIndex !== -1) {
+						// Calculate approximate line position
+						const textBeforeUserSection = liveTemplatePreview.substring(0, userSectionIndex);
+						const linesBefore = textBeforeUserSection.split('\n').length;
+						const lineHeight = 24; // Approximate line height in pixels
+						const scrollPosition = Math.max(0, (linesBefore - 2) * lineHeight);
+						previewTextarea.scrollTop = scrollPosition;
+					}
+				}, 10);
+			}
+		} else {
+			liveTemplatePreview = '';
+		}
+	}
 
 	function generateSystemPrompt(profile: Profile, intentId?: string, template?: PromptTemplate): string {
 		const attrs = profile.attributes;
@@ -115,11 +152,22 @@
 		currentUser = state.user;
 	});
 
-	eventBus.subscribe(event => {
+	eventBus.subscribe(async event => {
 		if (event && (event.event === 'personaCreated' || event.event === 'templateCreated')) {
 			if (currentProfile) {
 				loadData(currentProfile.id);
 			}
+		}
+		if (event && event.event === 'editPrompt' && event.data) {
+			// Load the prompt for editing - wait for data to load first
+			const prompt = event.data;
+			if (currentProfile) {
+				await loadData(currentProfile.id);
+			}
+			// Wait a bit for reactive updates
+			setTimeout(() => {
+				editPrompt(prompt);
+			}, 100);
 		}
 	});
 
@@ -144,14 +192,11 @@
 
 	async function loadData(profileId: string) {
 		try {
-			console.log('Loading data for profile:', profileId);
-			// Load prompts, templates (for creation), personas, and intents in parallel
 			const [promptsData, templatesData, personasData] = await Promise.all([
 				api.getPrompts(profileId),
-				api.getTemplates(profileId), 
+				api.getTemplates(profileId),
 				api.getPersonas(profileId)
 			]);
-			console.log('Loaded prompts:', promptsData);
 			generatedPrompts = promptsData ?? [];
 			templates = templatesData ?? [];
 			personas = personasData ?? [];
@@ -214,33 +259,33 @@
 	async function generatePrompt(e: Event) {
 		e.preventDefault();
 		if (!selectedTemplateId || !currentProfile) return;
-		
-		// Validate that query variable is populated
-		if (!variables.query || !variables.query.trim()) {
+
+		// Validate that query variable is populated (only if query exists in variables)
+		if ('query' in variables && (!variables.query || !variables.query.trim())) {
 			alert('Please fill in the {{query}} field before generating a prompt.');
 			return;
 		}
-		
+
 		try {
 			if (editingPrompt) {
-				await updatePrompt();
+				updatePrompt();
 			} else {
 				// Parse template ID and version from the compound value
 				const [templateId, versionStr] = selectedTemplateId.split(':');
 				const version = parseInt(versionStr);
 				const template = templates.find(t => t.id === templateId && t.version === version);
 				if (!template) return;
-				
+
 				// Generate system prompt from profile
 				const systemPrompt = generateSystemPrompt(currentProfile, selectedIntentId, template);
-				
+
 				// Generate content with updated variables, clean MetaRole and add User Section header
 				let content = cleanTemplateContent(template.template);
 				for (const [variable, value] of Object.entries(variables)) {
 					const placeholder = `{{${variable}}}`;
 					content = content.replaceAll(placeholder, value || '');
 				}
-				
+
 				// Combine system prompt with content
 				const fullContent = systemPrompt + '\n' + content;
 
@@ -320,71 +365,92 @@
 	}
 
 	function editPrompt(prompt: Prompt) {
-		console.log('Editing prompt:', prompt);
-		console.log('Available templates:', templates);
-		
 		editingPrompt = prompt;
 		let templateKey = `${prompt.template_id}:${prompt.template_version}`;
-		console.log('Looking for template key:', templateKey);
-		
+
 		// Find the template - first try exact version match
 		let template = templates.find(t => t.id === prompt.template_id && t.version === prompt.template_version);
-		
+
 		// If not found, try to find any version of this template (fallback for data inconsistency)
 		if (!template) {
-			console.warn('Exact template version not found, looking for any version of template:', prompt.template_id);
 			template = templates.find(t => t.id === prompt.template_id);
 			if (template) {
-				console.log('Found template with different version:', template.version, 'instead of', prompt.template_version);
 				templateKey = `${template.id}:${template.version}`;
 			}
 		}
-		
-		console.log('Found template:', template);
-		
+
 		if (template) {
 			selectedTemplateId = templateKey;
-			// Force set the selectedTemplate to ensure reactive statements work
 			selectedTemplate = template;
 			displayedVariables = extractVariables(template.template);
 			variables = { ...prompt.variable_values || {} };
 			promptName = prompt.name;
 			showEditForm = true;
-			console.log('Edit form setup complete', { selectedTemplateId, displayedVariables, variables });
 		} else {
-			console.error('Template not found for editing:', templateKey);
 			alert('Cannot edit prompt: Template not found. Please refresh and try again.');
 		}
 	}
 
-	async function updatePrompt() {
+	function updatePrompt() {
 		if (!editingPrompt) return;
-		
-		const template = templates.find(t => t.id === editingPrompt.template_id && t.version === editingPrompt.template_version);
-		if (!template) return;
+
+		// Try to find exact version match first
+		let template = templates.find(t => t.id === editingPrompt.template_id && t.version === editingPrompt.template_version);
+
+		// If not found, try to find any version of this template (fallback for data inconsistency)
+		if (!template) {
+			template = templates.find(t => t.id === editingPrompt.template_id);
+		}
+
+		if (!template) {
+			alert('Cannot update prompt: Template not found. Please refresh and try again.');
+			return;
+		}
 
 		// Generate system prompt from profile
 		const systemPrompt = generateSystemPrompt(currentProfile, selectedIntentId, template);
-		
+
 		// Generate new content with updated variables, clean MetaRole and add User Section header
 		let content = cleanTemplateContent(template.template);
 		for (const [variable, value] of Object.entries(variables)) {
 			const placeholder = `{{${variable}}}`;
 			content = content.replaceAll(placeholder, value || '');
 		}
-		
+
 		// Combine system prompt with content
 		content = systemPrompt + '\n' + content;
 
+		// Show results inline instead of saving immediately
+		generatedPromptContent = content;
+		evaluationResults = null; // Clear previous evaluation results
+	}
+
+	async function saveUpdatedPrompt() {
+		if (!editingPrompt) return;
+
+		// Find the actual template being used (with fallback for version mismatch)
+		let template = templates.find(t => t.id === editingPrompt.template_id && t.version === editingPrompt.template_version);
+		if (!template) {
+			template = templates.find(t => t.id === editingPrompt.template_id);
+		}
+		if (!template) {
+			alert('Cannot update prompt: Template not found.');
+			return;
+		}
+
+		// Use the suggested prompt if available, otherwise use the generated prompt
+		const promptContent = evaluationResults?.suggestedPrompt || generatedPromptContent;
+
 		const updatedPrompt = await api.updatePrompt(editingPrompt.id, {
 			name: promptName,
-			template_id: editingPrompt.template_id,
-			template_version: editingPrompt.template_version,
+			template_id: template.id,
+			template_version: template.version,  // Use the actual template version
 			variable_values: variables,
-			content: content
+			content: promptContent
 		});
 
 		generatedPrompts = generatedPrompts.map(p => p.id === updatedPrompt.id ? updatedPrompt : p);
+		alert('Prompt updated successfully!');
 		resetEditForm();
 	}
 
@@ -396,6 +462,7 @@
 		promptName = '';
 		generatedPromptContent = '';
 		evaluationResults = null;
+		showOriginalPrompt = true;
 	}
 
 	async function copyToClipboard(text: string) {
@@ -490,23 +557,29 @@
 	}
 
 
+	let showOriginalPrompt = true;
+
 	async function evaluatePrompt() {
 		if (!generatedPromptContent.trim()) return;
 
 		try {
 			isEvaluating = true;
-			evaluationResults = null; // Clear previous results
+			evaluationResults = null;
 
 			const response = await api.evaluatePrompt({
 				prompt: generatedPromptContent
 			});
 
 			evaluationResults = response;
-			console.log('Evaluation results:', evaluationResults);
+
+			// Collapse original prompt and show improved version
+			if (evaluationResults) {
+				showOriginalPrompt = false;
+			}
 
 		} catch (error) {
 			console.error('Error evaluating prompt:', error);
-			alert('Failed to evaluate prompt. Please try again.');
+			alert(`Failed to evaluate prompt: ${error.message}\n\nThis is a server error. Please check the backend logs for more details.`);
 		} finally {
 			isEvaluating = false;
 		}
@@ -525,21 +598,14 @@
 		}
 
 		try {
-			console.log('Saving suggested prompt with data:', {
-				name: promptName + ' (Claude Suggested)',
-				contentLength: suggestedPromptContent.length
-			});
-
 			// Send name, content, and template info to backend for proper association
 			const prompt = await api.generatePrompt(
-				promptName + ' (Claude Suggested)',
+				promptName,
 				suggestedPromptContent,
 				selectedTemplateId,
 				variables,
 				currentProfile.id
 			);
-
-			console.log('Received saved suggested prompt from API:', prompt);
 
 			if (prompt) {
 				// Track successful prompt creation
@@ -558,19 +624,19 @@
 				generatedPromptContent = '';
 				evaluationResults = null;
 
-				alert('Claude suggested prompt saved successfully!');
+				alert('Prompt saved successfully!');
 			} else {
-				console.error('Failed to save suggested prompt: No data returned from API');
+				console.error('Failed to save prompt: No data returned from API');
 				// Track failure
 				if (currentUser) {
 					await activityTracker.trackError(currentUser, ACTIVITY_TYPES.PROMPT_CREATED, 'No data returned from API');
 				}
 			}
 		} catch (error) {
-			console.error('Error saving suggested prompt:', error);
+			console.error('Error saving prompt:', error);
 			// Track error
 			if (currentUser) {
-				await activityTracker.trackError(currentUser, ACTIVITY_TYPES.PROMPT_CREATED, `Suggested prompt creation error: ${error}`);
+				await activityTracker.trackError(currentUser, ACTIVITY_TYPES.PROMPT_CREATED, `Prompt creation error: ${error}`);
 			}
 		}
 	}
@@ -578,184 +644,306 @@
 </script>
 
 <div class="prompt-generator">
-	<div class="header-with-intent">
-		<h2>Create New Prompt</h2>
-		<div class="intent-selector">
-			<label for="intent-dropdown">Intent:</label>
-			<select id="intent-dropdown" bind:value={selectedIntentId}>
-				<option value="">Select Intent</option>
-				{#each intents as intentItem}
-					<option value={intentItem.intent}>{intentItem.name}</option>
-				{/each}
-			</select>
-		</div>
-	</div>
-	
 	<div class="generator-form">
 		{#if showEditForm && editingPrompt}
-			<div class="editing-prompt-header">
-				<h3>Editing Prompt: {editingPrompt.name}</h3>
-				<button type="button" class="cancel-edit-btn" on:click={resetEditForm}>Cancel Edit</button>
+			<div class="editing-alert">
+				<div class="alert-content">
+					<p class="alert-message">You are editing: <strong>{editingPrompt.name}</strong></p>
+					<button type="button" class="cancel-link" on:click={resetEditForm}>
+						Cancel
+					</button>
+				</div>
 			</div>
 		{/if}
 		
-		<RichDropdown 
-			items={templateOptions}
-			bind:selectedValue={selectedTemplateId}
-			placeholder="Select Template"
-		/>
+		<div class="template-section">
+			<!-- <h3 class="template-label">📝 Choose Template</h3> -->
+			<RichDropdown
+				items={templateOptions}
+				bind:selectedValue={selectedTemplateId}
+				placeholder="Browse available templates..."
+			/>
+		</div>
 
 		{#if selectedTemplate || (showEditForm && editingPrompt)}
-			<div class="prompt-form">
-				<div class="prompt-name-input">
-					<label>Prompt Name:</label>
-					<input bind:value={promptName} placeholder="Enter prompt name" required />
-				</div>
-
-				<div class="variables-form">
-					<h4>Variables</h4>
-					{#each displayedVariables as variable}
-						<div class="variable-input">
-							<label>{variable}:</label>
-							<input bind:value={variables[variable]} placeholder={`Enter ${variable}`} />
+			<div class="prompt-creation-container">
+				<div class="creation-form">
+					<div class="form-section">
+						<div class="prompt-name-field">
+							<!-- <label for="prompt-name" class="prompt-name-label">✨ Prompt Name</label> -->
+							<input
+								id="prompt-name"
+								class="form-input prompt-name-input"
+								bind:value={promptName}
+								placeholder="Prompt Name - e.g., Study Guide Generator, Email Assistant"
+								required
+							/>
 						</div>
-					{/each}
-				</div>
+					</div>
 
-				<div class="button-group">
-					<button on:click={(e) => generatePrompt(e)}>
-						{editingPrompt ? 'Update Prompt' : 'Create Prompt'}
-					</button>
-					{#if generatedPromptContent && !editingPrompt}
-						<button
-							type="button"
-							class="evaluate-btn"
-							on:click={evaluatePrompt}
-							disabled={isEvaluating}
-						>
-							{isEvaluating ? 'Evaluating...' : 'Ask Claude'}
-						</button>
-						<button
-							type="button"
-							class="save-btn"
-							on:click={saveGeneratedPrompt}
-							disabled={!promptName.trim() || !evaluationResults?.suggestedPrompt}
-						>
-							Save Generated Prompt
-						</button>
-					{/if}
-					{#if editingPrompt}
-						<button type="button" on:click={resetEditForm}>Cancel Edit</button>
-					{/if}
-				</div>
-			</div>
-
-			{#if generatedPromptContent}
-				<div class="inline-prompt-display">
-					<div class="prompt-results-container">
-						<div class="generated-prompt-section">
+					<!-- Live Template Preview -->
+					{#if liveTemplatePreview}
+						<div class="form-section">
 							<div class="section-header">
-								<h4>Generated Prompt</h4>
+								<h3 class="section-title">👁️ Live Preview</h3>
+								<p class="section-subtitle">Focused on Task section where your variables are used</p>
 							</div>
 							<textarea
-								bind:value={generatedPromptContent}
-								placeholder="Generated prompt will appear here..."
-								rows="20"
+								bind:this={previewTextarea}
+								class="form-textarea preview-textarea"
+								value={liveTemplatePreview}
+								readonly
+								rows="10"
 							></textarea>
 						</div>
+					{/if}
 
-						{#if evaluationResults}
-							<div class="suggested-prompt-section">
-								<div class="section-header">
-									<h4>Suggested Prompt</h4>
-								</div>
-								<textarea
-									value={evaluationResults.suggestedPrompt}
-									readonly
-									placeholder="Suggested prompt will appear here..."
-									rows="20"
-								></textarea>
+					{#if displayedVariables.length > 0}
+						<div class="form-section">
+							<div class="section-header">
+								<h3 class="section-title">🔄 Template Variables</h3>
+								<!-- <p class="section-subtitle">Fill in the variables to customize your prompt</p> -->
 							</div>
+							<div class="variables-grid">
+								{#each displayedVariables as variable}
+									<div class="form-field">
+										<label for="var-{variable}" class="field-label">{variable}</label>
+										<input
+											id="var-{variable}"
+											class="form-input"
+											bind:value={variables[variable]}
+											placeholder={`Enter ${variable.toLowerCase().replace('_', ' ')}`}
+										/>
+									</div>
+								{/each}
+							</div>
+						</div>
+					{/if}
+
+					<div class="form-actions">
+						<button class="btn btn-primary" on:click={(e) => generatePrompt(e)}>
+							{editingPrompt ? 'Update Prompt' : 'Generate Prompt'}
+						</button>
+						{#if generatedPromptContent}
+							<button
+								type="button"
+								class="btn btn-primary"
+								on:click={evaluatePrompt}
+								disabled={isEvaluating}
+							>
+								{isEvaluating ? 'Evaluating...' : 'Improve with LLM'}
+							</button>
+							{#if editingPrompt}
+								<button
+									type="button"
+									class="btn btn-success"
+									on:click={saveUpdatedPrompt}
+									disabled={!promptName.trim()}
+								>
+									Save Updated Prompt
+								</button>
+							{:else}
+								<button
+									type="button"
+									class="btn btn-success"
+									on:click={saveGeneratedPrompt}
+									disabled={!promptName.trim() || !evaluationResults?.suggestedPrompt}
+								>
+									Save Prompt
+								</button>
+							{/if}
+						{/if}
+						{#if editingPrompt}
+							<button type="button" class="cancel-link" on:click={resetEditForm}>
+								Cancel Edit
+							</button>
 						{/if}
 					</div>
 				</div>
-			{/if}
+				{#if generatedPromptContent}
+					<div class="prompt-results">
+						<div class="results-header">
+							<h3 class="results-title">📝 Generated Results</h3>
+							<p class="results-subtitle">Review and refine your generated prompt</p>
+						</div>
+
+						<div class="results-grid">
+							{#if showOriginalPrompt}
+								<div class="result-panel">
+									<div class="panel-header">
+										{#if evaluationResults}
+											<button
+												class="collapse-btn"
+												on:click={() => showOriginalPrompt = false}
+												title="Collapse original prompt"
+											>
+												▼
+											</button>
+										{/if}
+										<div class="panel-header-content">
+											<h4 class="panel-title">Your Generated Prompt</h4>
+											<p class="panel-subtitle">Edit and customize as needed</p>
+										</div>
+									</div>
+									<textarea
+										class="form-textarea result-textarea"
+										bind:value={generatedPromptContent}
+										placeholder="Generated prompt will appear here..."
+										rows="15"
+									></textarea>
+								</div>
+							{:else if evaluationResults}
+								<div class="result-panel-collapsed">
+									<div class="collapsed-header" on:click={() => showOriginalPrompt = true} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && (showOriginalPrompt = true)}>
+										<h4 class="collapsed-title">▶ Your Original Prompt</h4>
+										<p class="collapsed-subtitle">Click to expand</p>
+									</div>
+								</div>
+							{/if}
+
+							{#if evaluationResults}
+								<div class="result-panel claude-panel" class:expanded={!showOriginalPrompt}>
+									<div class="panel-header">
+										<h4 class="panel-title">🤖 Claude's Improved Version</h4>
+										<p class="panel-subtitle">AI-optimized for better results</p>
+									</div>
+									<textarea
+										class="form-textarea result-textarea claude-textarea"
+										value={evaluationResults.suggestedPrompt}
+										readonly
+										placeholder="Claude's improved prompt will appear here..."
+										rows="15"
+									></textarea>
+								</div>
+							{/if}
+						</div>
+					</div>
+				{/if}
+			</div>
 
 		{/if}
 	</div>
 
-	<div class="generated-prompts">
-		<div class="prompts-header">
-			<h3>Generated Prompts</h3>
-			<div class="filter-section">
-				<RichDropdown 
-					items={filterOptions}
-					bind:selectedValue={filterTemplateId}
-					placeholder="Filter by template"
-				/>
+	<div class="prompts-library">
+		<div class="library-header">
+			<div class="header-content">
+				<div class="header-text">
+					<h3 class="library-title">📋 Your Prompt Library</h3>
+					<p class="library-subtitle">
+						{filteredPrompts.length === 0 ? 'No prompts generated yet' : `${filteredPrompts.length} prompt${filteredPrompts.length === 1 ? '' : 's'} available`}
+					</p>
+				</div>
+				<div class="filter-section">
+					<label class="filter-label">🔍 Filter</label>
+					<RichDropdown
+						items={filterOptions}
+						bind:selectedValue={filterTemplateId}
+						placeholder="All templates"
+					/>
+				</div>
 			</div>
-		</div>
-		<p class="llm-instructions">Click on the LLM to copy the prompt and open the LLM screen. Paste (Ctrl+V) there to use the prompt</p>
-		{#each filteredPrompts as prompt}
-			<div class="prompt-card">
-				<div class="prompt-header">
-					<div class="prompt-meta">
-						<div class="prompt-name-with-expand">
-							<button class="expand-btn-left" on:click={() => togglePromptExpansion(prompt.id)} title={expandedPrompts.has(prompt.id) ? 'Collapse' : 'Expand'}>
-								{expandedPrompts.has(prompt.id) ? '▼' : '▶'}
-							</button>
-							<div class="prompt-name-highlight">
-								<strong>{prompt.name || '[No name]'}</strong>
-							</div>
-						</div>
-						<div class="prompt-template-simple">
-							Template: <a 
-								class="template-simple-link" 
-								href="javascript:void(0)"
-								on:click={() => showTemplateDetails(prompt.template_id, prompt.template_version)}
-								title="Click to view template details"
-							>
-								{getTemplateDisplay(prompt.template_id, prompt.template_version)}
-							</a>
-						</div>
-					</div>
-					<div class="prompt-actions">
-						<button class="llm-btn chatgpt-btn" on:click={() => directCopyAndOpenLLM(prompt, 'chatgpt')} title="Copy prompt and open ChatGPT">
-							{copiedPromptId === prompt.id ? 'Copied!' : 'ChatGPT'}
-						</button>
-						<button class="llm-btn claude-btn" on:click={() => directCopyAndOpenLLM(prompt, 'claude')} title="Copy prompt and open Claude">
-							{copiedPromptId === prompt.id ? 'Copied!' : 'Claude'}
-						</button>
-						<button class="llm-btn perplexity-btn" on:click={() => directCopyAndOpenLLM(prompt, 'perplexity')} title="Copy prompt and open Perplexity">
-							{copiedPromptId === prompt.id ? 'Copied!' : 'Perplexity'}
-						</button>
-						<button class="llm-btn gemini-btn" on:click={() => directCopyAndOpenLLM(prompt, 'gemini')} title="Copy prompt and open Gemini">
-							{copiedPromptId === prompt.id ? 'Copied!' : 'Gemini'}
-						</button>
-						<button class="icon-btn edit-btn" on:click={() => editPrompt(prompt)} title="Edit">
-							✏️
-						</button>
-						<button class="icon-btn delete-btn" on:click={() => deletePrompt(prompt)} title="Delete">
-							🗑️
-						</button>
+			<div class="usage-instructions">
+				<div class="instruction-card">
+					<div class="instruction-icon">🚀</div>
+					<div class="instruction-text">
+						<strong>Quick Start:</strong> Click any AI platform button to copy the prompt and open that platform.
+						<span class="mobile-only">Then paste (long press → Paste) to use your prompt.</span>
+						<span class="desktop-only">Then paste (Ctrl+V) to use your prompt.</span>
 					</div>
 				</div>
-				{#if expandedPrompts.has(prompt.id)}
-					<div class="prompt-content">
-						<strong>Final Content:</strong>
-						<pre>{prompt.content}</pre>
-					</div>
-					{#if prompt.variable_values && Object.keys(prompt.variable_values).length > 0}
-						<div class="prompt-values">
-							<strong>Values Used:</strong>
-							{#each Object.entries(prompt.variable_values) as [key, value]}
-								<span class="value-tag">{key}: {value}</span>
-							{/each}
-						</div>
-					{/if}
-				{/if}
 			</div>
-		{/each}
+		</div>
+		{#if filteredPrompts.length === 0}
+			<div class="empty-prompts">
+				<div class="empty-icon">💡</div>
+				<h4>No Prompts Yet</h4>
+				<p>Create your first prompt using a template above to get started</p>
+			</div>
+		{:else}
+			<div class="prompts-grid">
+				{#each filteredPrompts as prompt}
+					<div class="prompt-card">
+						<div class="card-header">
+							<div class="prompt-info">
+								<div class="prompt-title-row">
+									<button
+										class="expand-toggle"
+										on:click={() => togglePromptExpansion(prompt.id)}
+										title={expandedPrompts.has(prompt.id) ? 'Collapse' : 'Expand'}
+									>
+										{expandedPrompts.has(prompt.id) ? '▼' : '▶'}
+									</button>
+									<h4 class="prompt-title">{prompt.name || 'Unnamed Prompt'}</h4>
+								</div>
+							</div>
+						</div>
+
+						<div class="card-actions actions-right">
+							<div class="llm-icons">
+								<button 
+									class="btn btn-llm chatgpt-icon" 
+									on:click={() => directCopyAndOpenLLM(prompt, 'chatgpt')} 
+									title="Execute with ChatGPT - Copies prompt and opens ChatGPT"
+								>
+									🤖
+								</button>
+								<button 
+									class="btn btn-llm claude-icon" 
+									on:click={() => directCopyAndOpenLLM(prompt, 'claude')} 
+									title="Execute with Claude - Copies prompt and opens Claude"
+								>
+									🔮
+								</button>
+								<button 
+									class="btn btn-llm gemini-icon" 
+									on:click={() => directCopyAndOpenLLM(prompt, 'gemini')} 
+									title="Execute with Gemini - Copies prompt and opens Gemini"
+								>
+									💎
+								</button>
+								<button 
+									class="btn btn-llm perplexity-icon" 
+									on:click={() => directCopyAndOpenLLM(prompt, 'perplexity')} 
+									title="Execute with Perplexity - Copies prompt and opens Perplexity"
+								>
+									🧠
+								</button>
+							</div>
+							<div class="divider"></div>
+							<button class="btn btn-icon" on:click={() => editPrompt(prompt)} title="Edit prompt">
+								✏️
+							</button>
+							<button class="btn btn-icon delete-btn" on:click={() => deletePrompt(prompt)} title="Delete prompt">
+								🗑️
+							</button>
+						</div>
+						{#if expandedPrompts.has(prompt.id)}
+							<div class="prompt-details">
+								<div class="detail-section">
+									<h5 class="detail-title">📝 Final Prompt Content</h5>
+									<div class="prompt-content-display">
+										<pre class="prompt-text">{prompt.content}</pre>
+									</div>
+								</div>
+								{#if prompt.variable_values && Object.keys(prompt.variable_values).length > 0}
+									<div class="detail-section">
+										<h5 class="detail-title">🔄 Variable Values Used</h5>
+										<div class="variables-display">
+											{#each Object.entries(prompt.variable_values) as [key, value]}
+												<div class="variable-item">
+													<span class="variable-key">{key}:</span>
+													<span class="variable-value">{value}</span>
+												</div>
+											{/each}
+										</div>
+									</div>
+								{/if}
+							</div>
+						{/if}
+					</div>
+				{/each}
+			</div>
+		{/if}
 	</div>
 </div>
 
@@ -782,78 +970,14 @@
 
 
 <style>
-	.prompt-generator {
-		margin: 20px;
-	}
+/* Prompt Generator Mobile-First Styles */
+.prompt-generator {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+  width: 100%;
+}
 
-	.header-with-intent {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 20px;
-	}
-
-	.header-with-intent h2 {
-		margin: 0;
-	}
-
-	.intent-selector {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-	}
-
-	.intent-selector label {
-		font-weight: bold;
-		color: #333;
-	}
-
-	.intent-selector select {
-		padding: 8px 12px;
-		border: 1px solid #ddd;
-		border-radius: 4px;
-		background: white;
-		font-size: 14px;
-		min-width: 180px;
-		cursor: pointer;
-	}
-
-	.intent-selector select:focus {
-		outline: none;
-		border-color: #007cba;
-		box-shadow: 0 0 0 2px rgba(0, 124, 186, 0.2);
-	}
-
-	.editing-prompt-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		background: #fff3cd;
-		border: 1px solid #ffeaa7;
-		border-radius: 8px;
-		padding: 15px 20px;
-		margin-bottom: 20px;
-	}
-
-	.editing-prompt-header h3 {
-		margin: 0;
-		color: #856404;
-		font-size: 16px;
-	}
-
-	.cancel-edit-btn {
-		background: #6c757d;
-		color: white;
-		border: none;
-		padding: 8px 16px;
-		border-radius: 4px;
-		font-size: 14px;
-		cursor: pointer;
-	}
-
-	.cancel-edit-btn:hover {
-		background: #5a6268;
-	}
 	
 	.generator-form {
 		max-width: 800px;
@@ -995,6 +1119,34 @@
 		background: #e3f2fd;
 		color: #005a87;
 		transform: scale(1.1);
+	}
+
+	.expand-toggle {
+		background: transparent !important;
+		border: none;
+		color: var(--color-text-muted);
+		font-size: 14px;
+		cursor: pointer;
+		padding: 4px;
+		transition: all 0.2s ease;
+		min-width: 20px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		margin-right: var(--space-sm);
+	}
+
+	.expand-toggle:hover {
+		background: transparent !important;
+		color: var(--color-primary);
+		transform: scale(1.1);
+	}
+
+	.prompt-title-row {
+		display: flex;
+		align-items: center;
+		gap: 0;
+		margin-bottom: 6px;
 	}
 
 	.prompt-name-highlight {
@@ -1615,5 +1767,225 @@
 		.button-group button {
 			width: 100%;
 		}
+	}
+
+	/* Intent Section Styles */
+	.intent-section {
+		display: flex;
+		align-items: center;
+		gap: var(--space-sm);
+	}
+
+	.intent-label {
+		font-weight: 500;
+		color: var(--color-text);
+		white-space: nowrap;
+		margin: 0;
+	}
+
+	.intent-select {
+		max-width: 300px;
+		flex: 0 1 auto;
+	}
+
+	/* Template Section Styles */
+	.template-section {
+		display: flex;
+		align-items: center;
+		gap: var(--space-md);
+		margin-bottom: var(--space-sm);
+	}
+
+	.template-label {
+		font-weight: 600;
+		color: var(--color-text);
+		white-space: nowrap;
+		margin: 0;
+		font-size: var(--font-lg);
+	}
+
+	.template-section :global(.rich-dropdown) {
+		flex: 1;
+		max-width: 500px;
+	}
+
+	/* Prompt Name Field Styles */
+	.form-section {
+		margin-bottom: var(--space-sm);
+	}
+
+	.prompt-name-field {
+		display: flex;
+		align-items: center;
+		gap: var(--space-md);
+		margin-bottom: 0;
+	}
+
+	.prompt-name-label {
+		font-weight: 600;
+		color: var(--color-text);
+		white-space: nowrap;
+		margin: 0;
+		font-size: var(--font-lg);
+		min-width: 140px;
+	}
+
+	.prompt-name-input {
+		flex: 1;
+		max-width: 500px;
+	}
+
+	/* Action Link Styles */
+	.action-link {
+		background: none;
+		border: none;
+		color: var(--color-primary);
+		text-decoration: underline;
+		cursor: pointer;
+		padding: 0;
+		font-size: var(--font-md);
+		font-weight: 500;
+	}
+
+	.action-link:hover {
+		color: var(--color-primary-dark);
+		text-decoration: none;
+	}
+
+	.action-link:disabled {
+		color: var(--color-text-light);
+		cursor: not-allowed;
+		opacity: 0.5;
+	}
+
+	/* Cancel Link Styles */
+	.cancel-link {
+		background: none;
+		border: none;
+		color: var(--color-text-muted);
+		text-decoration: underline;
+		cursor: pointer;
+		padding: 0;
+		font-size: var(--font-md);
+		font-weight: normal;
+	}
+
+	.cancel-link:hover {
+		color: var(--color-text);
+		text-decoration: none;
+	}
+
+	.alert-content {
+		display: flex;
+		align-items: center;
+		gap: var(--space-md);
+	}
+
+	.alert-message {
+		margin: 0;
+		flex: 1;
+	}
+
+	/* Override button styles with transparent backgrounds */
+	:global(.btn-primary) {
+		background: transparent !important;
+		background-color: transparent !important;
+		color: var(--color-text) !important;
+		border: 2px solid var(--color-primary) !important;
+		box-shadow: none !important;
+	}
+
+	:global(.btn-primary:hover) {
+		background: rgba(0, 124, 186, 0.05) !important;
+		background-color: rgba(0, 124, 186, 0.05) !important;
+		border-color: var(--color-primary-dark) !important;
+		color: var(--color-text) !important;
+		transform: translateY(-1px);
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+	}
+
+	:global(.btn-success) {
+		background: transparent !important;
+		background-color: transparent !important;
+		color: var(--color-text) !important;
+		border: 2px solid var(--color-success) !important;
+		box-shadow: none !important;
+	}
+
+	:global(.btn-success:hover) {
+		background: rgba(76, 175, 80, 0.05) !important;
+		background-color: rgba(76, 175, 80, 0.05) !important;
+		border-color: var(--color-success-hover) !important;
+		color: var(--color-text) !important;
+		transform: translateY(-1px);
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+	}
+
+	/* Collapsed Panel Styles */
+	.result-panel-collapsed {
+		background: var(--color-surface);
+		border: 1px solid var(--color-border);
+		border-radius: 8px;
+		overflow: hidden;
+		transition: all 0.3s ease;
+	}
+
+	.collapsed-header {
+		padding: var(--space-md);
+		cursor: pointer;
+		transition: all 0.2s ease;
+		background: var(--color-background);
+		border-left: 4px solid var(--color-primary);
+	}
+
+	.collapsed-header:hover {
+		background: var(--color-surface);
+		border-left-color: var(--color-primary-dark);
+	}
+
+	.collapsed-title {
+		margin: 0 0 var(--space-xs) 0;
+		font-size: var(--font-md);
+		color: var(--color-text);
+		font-weight: 600;
+	}
+
+	.collapsed-subtitle {
+		margin: 0;
+		font-size: var(--font-sm);
+		color: var(--color-text-muted);
+	}
+
+	.claude-panel.expanded {
+		grid-column: 1 / -1;
+	}
+
+	.panel-header {
+		display: flex;
+		align-items: flex-start;
+		gap: var(--space-sm);
+	}
+
+	.panel-header-content {
+		flex: 1;
+	}
+
+	.collapse-btn {
+		background: transparent;
+		border: 1px solid var(--color-border);
+		border-radius: 6px;
+		padding: var(--space-xs) var(--space-sm);
+		cursor: pointer;
+		color: var(--color-text-muted);
+		font-size: var(--font-md);
+		transition: all 0.2s ease;
+		flex-shrink: 0;
+		margin-right: var(--space-xs);
+	}
+
+	.collapse-btn:hover {
+		background: var(--color-background);
+		border-color: var(--color-primary);
+		color: var(--color-primary);
 	}
 </style>
